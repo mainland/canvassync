@@ -321,7 +321,20 @@ class CanvasSync:
             else:
                 file: File = self.upload_file(filepath)
 
-                course_item.edit(module_item={ 'content_id': file.id })
+                # XXX We can't update a file link even though the REST API
+                # doesn't throw an error, so delete the old module item and
+                # create a new one
+                if False:
+                    course_item = course_item.edit(module_item={'content_id': file.id, 'type': 'File'})
+                else:
+                    if course_item.content_id != file.id:
+                        course_item.delete()
+                        course_item = course_module.create_module_item(module_item={ 'title': item['title']
+                                                                                   , 'type': "File"
+                                                                                   , 'position': idx+1
+                                                                                   , 'content_id': file.id
+                                                                                   })
+                        created = True
         elif the_type == "Assignment":
             assignment = self.get_assignment(item['title'])
 
