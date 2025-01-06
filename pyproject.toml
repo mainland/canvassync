@@ -1,0 +1,25 @@
+[project]
+name = "canvassync"
+description = "Synchronize files with Canvas"
+authors = [
+    {name = "Geoffrey Mainland", email = "mainland@drexel.edu"},
+]
+version = "0.1"
+requires-python = ">=3.12"
+dependencies = [
+    "BeautifulSoup4",
+    "PyYAML",
+    "canvasapi",
+    "jinja2",
+    "pandas",
+    "pypandoc_binary",
+    "python-dateutil",
+    "tzlocal",
+    "rich",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+canvas-sync = "canvassync.command_line:sync"
