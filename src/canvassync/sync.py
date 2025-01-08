@@ -100,6 +100,56 @@ class CanvasSync:
                                       use_sis_id=True,
                                       **kwargs)
 
+    def get_assignment(self, name: str) -> Optional[Assignment]:
+        assignments = self.course.get_assignments()
+
+        for assignment in assignments:
+            if assignment.name == name:
+                return assignment
+
+        return None
+
+    def get_file(self, filename: str) -> Optional[File]:
+        for file in self.course.get_files():
+            if file.filename == filename:
+                return file
+
+        return None
+
+    def upload_file(self, filepath: Path) -> File:
+        # Bail if the file doesn't exist
+        if not filepath.exists():
+            raise ValueError(f"File '{filepath:}' does not exist")
+
+        # See if a file by this name exists
+        file: Optional[File] = self.get_file(filepath.name)
+
+        # If so, compare contents
+        if file is not None:
+            old_contents = file.get_contents(binary=True)
+
+            with filepath.open('rb') as f:
+                new_contents = f.read()
+
+            # Contents differ. Delete the old file and force an upload.
+            if new_contents != old_contents:
+                logging.debug("File contents differ")
+                file.delete()
+                file = None
+            else:
+                logging.debug("File contents identical")
+
+        if file is not None:
+            return file
+
+        if file is None:
+            logging.debug("Uploading '%s'", str(filepath))
+            success, response = self.course.upload(filepath)
+            if success:
+                return self.canvas.get_file(response['id'])
+
+            raise ValueError(f"Could not upload {filepath:}")
+
     def render_markdown(self, path: Path) -> str:
         """Render Markdown (using pandoc)"""
         with open(self.root / path, 'r', encoding='utf8') as f:
@@ -196,56 +246,6 @@ class CanvasSync:
         for course_module_item in course_module_items[course_idx:]:
             logging.debug("Deleting extra item: %s", course_module_item)
             course_module_item.delete()
-
-    def get_assignment(self, name: str) -> Optional[Assignment]:
-        assignments = self.course.get_assignments()
-
-        for assignment in assignments:
-            if assignment.name == name:
-                return assignment
-
-        return None
-
-    def get_file(self, filename: str) -> Optional[File]:
-        for file in self.course.get_files():
-            if file.filename == filename:
-                return file
-
-        return None
-
-    def upload_file(self, filepath: Path) -> File:
-        # Bail if the file doesn't exist
-        if not filepath.exists():
-            raise ValueError(f"File '{filepath:}' does not exist")
-
-        # See if a file by this name exists
-        file: Optional[File] = self.get_file(filepath.name)
-
-        # If so, compare contents
-        if file is not None:
-            old_contents = file.get_contents(binary=True)
-
-            with filepath.open('rb') as f:
-                new_contents = f.read()
-
-            # Contents differ. Delete the old file and force an upload.
-            if new_contents != old_contents:
-                logging.debug("File contents differ")
-                file.delete()
-                file = None
-            else:
-                logging.debug("File contents identical")
-
-        if file is not None:
-            return file
-
-        if file is None:
-            logging.debug("Uploading '%s'", str(filepath))
-            success, response = self.course.upload(filepath)
-            if success:
-                return self.canvas.get_file(response['id'])
-
-            raise ValueError(f"Could not upload {filepath:}")
 
     def create_module_item(self, course_module: Module, idx: int, item: dict) -> ModuleItem:
         the_type = item_type(item)
