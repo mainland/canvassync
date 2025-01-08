@@ -96,6 +96,7 @@ class SyncCommand(Command):
         #
         render_parser = subparsers.add_parser('render', help='Render markdown')
         render_parser.add_argument('path', type=Path)
+        render_parser.add_argument('--output', '-o', type=Path)
         render_parser.set_defaults(func=self.render)
 
         #
@@ -145,7 +146,13 @@ class SyncCommand(Command):
         self.sync_obj.sync()
 
     def render(self, args: Namespace):
-        print(self.sync_obj.render_markdown(args.path))
+        rendered = self.sync_obj.render_markdown(args.path)
+
+        if args.output:
+            with args.output.open('w', encoding="utf8") as f:
+                f.write(rendered)
+        else:
+            print(rendered)
 
     def courses(self, args: Namespace):
         courses = self.sync_obj.canvas.get_courses()
