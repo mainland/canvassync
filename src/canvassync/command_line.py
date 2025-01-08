@@ -89,6 +89,7 @@ class SyncCommand(Command):
         # Synchronize
         #
         sync_parser = subparsers.add_parser('sync', help='Synchronize with Canvas')
+        sync_parser.add_argument('--limit', action='append', default=None)
         sync_parser.set_defaults(func=self.sync)
 
         #
@@ -143,7 +144,7 @@ class SyncCommand(Command):
                     page.edit(wiki_page={'body': "<p>Boop!</p>"})
 
     def sync(self, args: Namespace):
-        self.sync_obj.sync()
+        self.sync_obj.sync(limits=args.limit)
 
     def render(self, args: Namespace):
         rendered = self.sync_obj.render_markdown(args.path)

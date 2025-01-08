@@ -117,7 +117,7 @@ class CanvasSync:
                                          format='md',
                                          extra_args=['--mathjax'])
 
-    def sync(self):
+    def sync(self, limits: Optional[str]=None):
         """Synchronize course"""
         self.sync_syllabus(self.course)
 
@@ -131,7 +131,7 @@ class CanvasSync:
                                                                  , 'position': idx
                                                                  })
 
-            self.sync_module(module, course_module)
+            self.sync_module(module, course_module, limits=limits)
 
     def sync_syllabus(self, course: Course):
         """Synchronize course syllabus"""
@@ -161,7 +161,7 @@ class CanvasSync:
 
         return result
 
-    def sync_module(self, module: dict, course_module: Module):
+    def sync_module(self, module: dict, course_module: Module, limits: Optional[str]=None):
         course_module.edit(module={ 'name': module['name']
                                   , 'published': module.get('published', False)
                                   })
@@ -176,6 +176,11 @@ class CanvasSync:
         course_idx = 0
 
         for item in module_items:
+            if limits is not None and item['title'] not in limits:
+                idx += 1
+                course_idx += 1
+                continue
+
             if len(course_module_items) > idx:
                 module_item = course_module_items[course_idx]
                 if not self.sync_module_item(course_module, idx, item, module_item):
