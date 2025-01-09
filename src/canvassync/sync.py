@@ -16,7 +16,7 @@ from canvasapi.course import Course
 from canvasapi.file import File
 from canvasapi.module import Module, ModuleItem
 from canvasapi.page import Page
-from jinja2 import BaseLoader, Environment
+from jinja2 import Environment, FileSystemLoader
 from rich import print
 
 TextSource: TypeAlias = Path | str
@@ -197,7 +197,18 @@ class CanvasSync:
         else:
             text = source
 
-        env = Environment(loader=BaseLoader())
+        loader = FileSystemLoader(self.root)
+        env = Environment(loader=loader)
+
+        # Add filters
+        def canvas_link(value):
+            page = self.get_page_by_title(value)
+            if page is None:
+                return ""
+
+            return page.html_url
+
+        env.filters["canvas_link"] = canvas_link
 
         # Add template variables
         env.globals.update(self.config.get('vars', {}))
