@@ -3,7 +3,7 @@ import logging
 import sys
 from functools import cached_property
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Optional, TypeAlias
 
 import dateutil.parser
 import pypandoc
@@ -17,6 +17,9 @@ from canvasapi.file import File
 from canvasapi.module import Module, ModuleItem
 from jinja2 import BaseLoader, Environment
 from rich import print
+
+TextSource: TypeAlias = Path | str
+"""A text source. Either a path to a file or a raw string."""
 
 def normalize_html(html: str) -> str:
     soup = BeautifulSoup(html, 'html.parser')
@@ -150,10 +153,13 @@ class CanvasSync:
 
             raise ValueError(f"Could not upload {filepath:}")
 
-    def render_template(self, path: Path, template_vars: Optional[dict]=None) -> str:
+    def render_template(self, source: TextSource, template_vars: Optional[dict]=None) -> str:
         """Render a template using Jinja"""
-        with open(self.root / path, 'r', encoding='utf8') as f:
-            text = f.read()
+        if isinstance(source, Path):
+            with open(self.root / source, 'r', encoding='utf8') as f:
+                text = f.read()
+        else:
+            text = source
 
         env = Environment(loader=BaseLoader())
 
@@ -167,9 +173,9 @@ class CanvasSync:
 
         return template.render(site=self.config['data'])
 
-    def render_markdown(self, path: Path, template_vars: Optional[dict]=None) -> str:
+    def render_markdown(self, source: TextSource, template_vars: Optional[dict]=None) -> str:
         """Render Markdown (using pandoc)"""
-        jinja_text = self.render_template(path, template_vars)
+        jinja_text = self.render_template(source, template_vars)
 
         # Render using pandoc
         return pypandoc.convert_text(jinja_text,
@@ -198,7 +204,7 @@ class CanvasSync:
         if 'syllabus' in self.config:
             logging.debug("Rendering syllabus")
 
-            html = self.render_markdown(self.config['syllabus'])
+            html = self.render_markdown(Path(self.config['syllabus']))
 
             if not html_equiv(course.syllabus_body, html):
                 logging.debug("Updating course syllabus")
@@ -261,7 +267,7 @@ class CanvasSync:
         the_type = item_type(item)
 
         if the_type == "Page":
-            html = self.render_markdown(item['page'],
+            html = self.render_markdown(Path(item['page']),
                                         template_vars=item.get('vars', None))
             page = self.course.create_page(wiki_page={ 'title': item['title']
                                                      , 'body': html
@@ -319,7 +325,7 @@ class CanvasSync:
             created = True
 
         if the_type == "Page":
-            html = self.render_markdown(item['page'],
+            html = self.render_markdown(Path(item['page']),
                                         template_vars=item.get('vars', None))
             page = self.course.get_page(course_item.page_url)
 
@@ -362,7 +368,7 @@ class CanvasSync:
             course_item.edit(module_item={ 'content_id': assignment.id })
 
             if 'description' in item:
-                html = self.render_markdown(item['description'],
+                html = self.render_markdown(Path(item['description']),
                                             template_vars=item.get('vars', None))
 
                 if assignment.description is None or not html_equiv(assignment.description, html):
