@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 import dateutil.parser
-import jinja2
 import pypandoc
 import tzlocal
 import yaml
@@ -16,6 +15,7 @@ from canvasapi.assignment import Assignment
 from canvasapi.course import Course
 from canvasapi.file import File
 from canvasapi.module import Module, ModuleItem
+from jinja2 import BaseLoader, Environment
 from rich import print
 
 def normalize_html(html: str) -> str:
@@ -150,22 +150,32 @@ class CanvasSync:
 
             raise ValueError(f"Could not upload {filepath:}")
 
-    def render_markdown(self, path: Path) -> str:
-        """Render Markdown (using pandoc)"""
+    def render_template(self, path: Path, template_vars: Optional[dict]=None) -> str:
+        """Render a template using Jinja"""
         with open(self.root / path, 'r', encoding='utf8') as f:
             text = f.read()
 
-        # Fill out template using launch parameters
-        template = jinja2.Template(text)
+        env = Environment(loader=BaseLoader())
 
-        jinja_text = text = template.render(site=self.config['data'])
+        # Add template variables
+        env.globals.update(self.config.get('vars', {}))
+        if template_vars is not None:
+            env.globals.update(template_vars)
+
+        # Create and render template
+        template = env.from_string(text)
+
+        return template.render(site=self.config['data'])
+
+    def render_markdown(self, path: Path, template_vars: Optional[dict]=None) -> str:
+        """Render Markdown (using pandoc)"""
+        jinja_text = self.render_template(path, template_vars)
 
         # Render using pandoc
-        with open(self.root / path, 'r', encoding='utf8') as f:
-            return pypandoc.convert_text(jinja_text,
-                                         to='html5+raw_html+smart',
-                                         format='md',
-                                         extra_args=['--mathjax'])
+        return pypandoc.convert_text(jinja_text,
+                                     to='html5+raw_html+smart',
+                                     format='md',
+                                     extra_args=['--mathjax'])
 
     def sync(self, limits: Optional[str]=None):
         """Synchronize course"""
@@ -251,7 +261,8 @@ class CanvasSync:
         the_type = item_type(item)
 
         if the_type == "Page":
-            html = self.render_markdown(item['page'])
+            html = self.render_markdown(item['page'],
+                                        template_vars=item.get('vars', None))
             page = self.course.create_page(wiki_page={ 'title': item['title']
                                                      , 'body': html
                                                      })
@@ -308,7 +319,8 @@ class CanvasSync:
             created = True
 
         if the_type == "Page":
-            html = self.render_markdown(item['page'])
+            html = self.render_markdown(item['page'],
+                                        template_vars=item.get('vars', None))
             page = self.course.get_page(course_item.page_url)
 
             if page.body is None or not html_equiv(html, page.body):
@@ -350,7 +362,8 @@ class CanvasSync:
             course_item.edit(module_item={ 'content_id': assignment.id })
 
             if 'description' in item:
-                html = self.render_markdown(item['description'])
+                html = self.render_markdown(item['description'],
+                                            template_vars=item.get('vars', None))
 
                 if assignment.description is None or not html_equiv(assignment.description, html):
                     assignment.edit(assignment={'description': html })
