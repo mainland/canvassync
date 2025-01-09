@@ -49,6 +49,7 @@ class Command:
         logging.basicConfig(format='%(asctime)s:%(name)s:%(levelname)s:%(message)s',
                             level=args.loglevel)
 
+        logging.getLogger('tzlocal').disabled = True
         logging.getLogger('pypandoc').disabled = True
         logging.getLogger('canvasapi.requester').disabled = True
         logging.getLogger('urllib3.connectionpool').disabled = True
