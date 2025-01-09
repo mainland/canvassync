@@ -15,6 +15,7 @@ from canvasapi.assignment import Assignment
 from canvasapi.course import Course
 from canvasapi.file import File
 from canvasapi.module import Module, ModuleItem
+from canvasapi.page import Page
 from jinja2 import BaseLoader, Environment
 from rich import print
 
@@ -164,6 +165,30 @@ class CanvasSync:
 
             raise ValueError(f"Could not upload {filepath:}")
 
+    def get_page(self, id_or_url: str) -> Page:
+        return self.course.get_page(id_or_url)
+
+    def get_page_by_title(self, title: str) -> Optional[Page]:
+        pages = list(self.course.get_pages(search_term=title))
+        if len(pages) == 0:
+            return None
+        elif len(pages) == 1:
+            return self.get_page(pages[0].page_id)
+        else:
+            raise ValueError(f"Multiple pages match '{title:}'")
+
+    def update_page_by_title(self, title: str, html: str) -> Page:
+        page = self.get_page_by_title(title)
+        if page is None:
+            return self.course.create_page(wiki_page={ 'title': title
+                                                     , 'body': html
+                                                     })
+
+        if page.body is None or not html_equiv(html, page.body):
+            page.edit(wiki_page={'body': html})
+
+        return page
+
     def render_template(self, source: TextSource, template_vars: Optional[dict]=None) -> str:
         """Render a template using Jinja"""
         if isinstance(source, Path):
@@ -280,9 +305,8 @@ class CanvasSync:
         if the_type == "Page":
             html = self.render_markdown(get_page_source(item),
                                         template_vars=item.get('vars', None))
-            page = self.course.create_page(wiki_page={ 'title': item['title']
-                                                     , 'body': html
-                                                     })
+
+            page = self.update_page_by_title(item['title'], html)
 
             return course_module.create_module_item(module_item={ 'title': item['title']
                                                                 , 'type': "Page"
@@ -338,10 +362,9 @@ class CanvasSync:
         if the_type == "Page":
             html = self.render_markdown(get_page_source(item),
                                         template_vars=item.get('vars', None))
-            page = self.course.get_page(course_item.page_url)
+            page = self.update_page_by_title(item['title'], html)
 
-            if page.body is None or not html_equiv(html, page.body):
-                page.edit(wiki_page={'body': html})
+            course_item.edit(module_item={ 'page_url': page.url })
         elif the_type == "ExternalUrl":
             if course_item.external_url != item['url']:
                 course_item.edit(module_item={ 'external_url': item['url'], 'new_tab': False })
