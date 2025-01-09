@@ -5,6 +5,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, List, Optional, TypeAlias
 
+import canvasapi.exceptions
 import dateutil.parser
 import pypandoc
 import tzlocal
@@ -396,7 +397,11 @@ class CanvasSync:
                     course_item = course_item.edit(module_item={'content_id': file.id, 'type': 'File'})
                 else:
                     if course_item.content_id != file.id:
-                        course_item.delete()
+                        try:
+                            course_item.delete()
+                        except canvasapi.exceptions.ResourceDoesNotExist:
+                            logging.exception("Could not delete %s", course_item)
+
                         course_item = course_module.create_module_item(module_item={ 'title': item['title']
                                                                                    , 'type': "File"
                                                                                    , 'position': idx+1
