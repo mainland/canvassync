@@ -47,6 +47,9 @@ def item_type(item: dict) -> str:
     if "page" in item:
         return "Page"
 
+    if "page_contents" in item:
+        return "Page"
+
     if "url" in item:
         return "ExternalUrl"
 
@@ -57,6 +60,14 @@ def item_type(item: dict) -> str:
         return "Assignment"
 
     return "SubHeader"
+
+def get_page_source(item: dict) -> TextSource:
+    assert item_type(item) == "Page"
+
+    if 'page' in item:
+        return Path(item['page'])
+    else:
+        return item['page_contents']
 
 class CanvasSync:
     config: dict
@@ -267,7 +278,7 @@ class CanvasSync:
         the_type = item_type(item)
 
         if the_type == "Page":
-            html = self.render_markdown(Path(item['page']),
+            html = self.render_markdown(get_page_source(item),
                                         template_vars=item.get('vars', None))
             page = self.course.create_page(wiki_page={ 'title': item['title']
                                                      , 'body': html
@@ -325,7 +336,7 @@ class CanvasSync:
             created = True
 
         if the_type == "Page":
-            html = self.render_markdown(Path(item['page']),
+            html = self.render_markdown(get_page_source(item),
                                         template_vars=item.get('vars', None))
             page = self.course.get_page(course_item.page_url)
 
