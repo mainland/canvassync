@@ -361,7 +361,7 @@ class CanvasSync:
             raise ValueError(f"Can't create item type {the_type:}")
 
     def sync_module_item(self, course_module: Any, idx: int, item: dict, course_item: Any) -> bool:
-        logging.debug("Synchronizing %s (%s)", course_item.title, course_item.type)
+        logging.debug("Synchronizing %s '%s'", course_item.type, course_item.title)
 
         the_type = item_type(item)
 
@@ -431,7 +431,7 @@ class CanvasSync:
         else:
             raise ValueError(f"Can't handle item type {the_type:}")
 
-        logging.debug("Updating item %s (indent %d)", item['title'], item['indent'])
+        logging.debug("Updating %s '%s'", course_item.type, item['title'])
         if course_item.type == "File":
             course_item.edit(module_item={ 'title': item['title']
                                          , 'indent': item['indent']
