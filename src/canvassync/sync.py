@@ -388,6 +388,7 @@ class CanvasSync:
             if not filepath.exists():
                 print(f"[red]Not updating because file '{filepath:}' does not exist[/red]")
             else:
+                logging.debug("Uploading file '%s'", str(filepath))
                 file: File = self.upload_file(filepath)
 
                 # XXX We can't update a file link even though the REST API
