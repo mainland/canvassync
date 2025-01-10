@@ -202,14 +202,7 @@ class CanvasSync:
         env = Environment(loader=loader)
 
         # Add filters
-        def canvas_link(value):
-            page = self.get_page_by_title(value)
-            if page is None:
-                return ""
-
-            return page.html_url
-
-        env.filters["canvas_link"] = canvas_link
+        env.filters["canvas_link"] = self.canvas_link
 
         # Add template variables
         env.globals.update(self.config.get('vars', {}))
@@ -220,6 +213,13 @@ class CanvasSync:
         template = env.from_string(text)
 
         return template.render(site=self.config['data'])
+
+    def canvas_link(self, value):
+        page = self.get_page_by_title(value)
+        if page is None:
+            return ""
+
+        return page.html_url
 
     def render_markdown(self, source: TextSource, template_vars: Optional[dict]=None) -> str:
         """Render Markdown (using pandoc)"""
