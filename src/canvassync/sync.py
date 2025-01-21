@@ -142,6 +142,7 @@ class CanvasSync:
 
         # If so, compare contents
         if file is not None:
+            logging.debug("Getting file contents")
             old_contents = file.get_contents(binary=True)
 
             with filepath.open('rb') as f:
@@ -181,11 +182,13 @@ class CanvasSync:
     def update_page_by_title(self, title: str, html: str) -> Page:
         page = self.get_page_by_title(title)
         if page is None:
+            logging.debug("Creating page '%s'", title)
             return self.course.create_page(wiki_page={ 'title': title
                                                      , 'body': html
                                                      })
 
         if page.body is None or not html_equiv(html, page.body):
+            logging.debug("Updating page '%s'", title)
             page.edit(wiki_page={'body': html})
 
         return page
@@ -276,6 +279,7 @@ class CanvasSync:
         return result
 
     def sync_module(self, module: dict, course_module: Module, limits: Optional[str]=None):
+        logging.debug("Synchronizing module '%s'", module['name'])
         course_module.edit(module={ 'name': module['name']
                                   , 'published': module.get('published', False)
                                   })
@@ -313,6 +317,8 @@ class CanvasSync:
 
     def create_module_item(self, course_module: Module, idx: int, item: dict) -> ModuleItem:
         the_type = item_type(item)
+
+        logging.debug("Creating module item (%s) '%s' at index %d", the_type, item['title'], idx)
 
         if the_type == "Page":
             html = self.render_markdown(get_page_source(item),
@@ -361,9 +367,13 @@ class CanvasSync:
             raise ValueError(f"Can't create item type {the_type:}")
 
     def sync_module_item(self, course_module: Any, idx: int, item: dict, course_item: Any) -> bool:
-        logging.debug("Synchronizing %s '%s'", course_item.type, course_item.title)
-
         the_type = item_type(item)
+
+        logging.debug("Synchronizing '%s' (%s) with '%s' (%s)",
+                      item['title'],
+                      the_type,
+                      course_item.title,
+                      course_item.type)
 
         created: bool = False
 
