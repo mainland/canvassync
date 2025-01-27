@@ -3,9 +3,8 @@ import logging
 import sys
 from functools import cached_property
 from pathlib import Path
-from typing import Any, List, Optional, TypeAlias
+from typing import Any, List, Optional, Tuple, TypeAlias
 
-import canvasapi.exceptions
 import dateutil.parser
 import pypandoc
 import tzlocal
@@ -132,7 +131,7 @@ class CanvasSync:
 
         return None
 
-    def upload_file(self, filepath: Path) -> File:
+    def upload_file(self, filepath: Path) -> Tuple[bool, File]:
         # Bail if the file doesn't exist
         if not filepath.exists():
             raise ValueError(f"File '{filepath:}' does not exist")
@@ -157,13 +156,13 @@ class CanvasSync:
                 logging.debug("File contents identical")
 
         if file is not None:
-            return file
+            return False, file
 
         if file is None:
             logging.debug("Uploading '%s'", str(filepath))
             success, response = self.course.upload(filepath)
             if success:
-                return self.canvas.get_file(response['id'])
+                return True, self.canvas.get_file(response['id'])
 
             raise ValueError(f"Could not upload {filepath:}")
 
@@ -344,7 +343,7 @@ class CanvasSync:
                                                                 })
         elif the_type == "File":
             filepath: Path = self.root / Path(item['file'])
-            file: File = self.upload_file(filepath)
+            _, file = self.upload_file(filepath)
 
             return course_module.create_module_item(module_item={ 'title': item['title']
                                                                 , 'type': "File"
@@ -399,26 +398,16 @@ class CanvasSync:
                 print(f"[red]Not updating because file '{filepath:}' does not exist[/red]")
             else:
                 logging.debug("Uploading file '%s'", str(filepath))
-                file: File = self.upload_file(filepath)
+                file_created, file = self.upload_file(filepath)
 
-                # XXX We can't update a file link even though the REST API
-                # doesn't throw an error, so delete the old module item and
-                # create a new one
-                if False:
-                    course_item = course_item.edit(module_item={'content_id': file.id, 'type': 'File'})
-                else:
-                    if course_item.content_id != file.id:
-                        try:
-                            course_item.delete()
-                        except canvasapi.exceptions.ResourceDoesNotExist:
-                            logging.exception("Could not delete %s", course_item)
-
-                        course_item = course_module.create_module_item(module_item={ 'title': item['title']
-                                                                                   , 'type': "File"
-                                                                                   , 'position': idx+1
-                                                                                   , 'content_id': file.id
-                                                                                   })
-                        created = True
+                if file_created:
+                    # Uploading the file deletes the old course item
+                    course_item = course_module.create_module_item(module_item={ 'title': item['title']
+                                                                               , 'type': "File"
+                                                                               , 'position': idx+1
+                                                                               , 'content_id': file.id
+                                                                               })
+                    created = True
         elif the_type == "Assignment":
             assignment = self.get_assignment(item['title'])
 
