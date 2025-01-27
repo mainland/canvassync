@@ -376,7 +376,7 @@ class CanvasSync:
 
         created: bool = False
 
-        if the_type != course_item.type:
+        if the_type != course_item.type or item['title'] != course_item.title:
             course_item = self.create_module_item(course_module, idx, item)
             created = True
 
