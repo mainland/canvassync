@@ -44,6 +44,23 @@ def parse_datetime(date: str) -> datetime.datetime:
 
     return dateutil.parser.parse(date, default=default_date)
 
+def flatten_items(items: List[dict], indent: int=0) -> List[dict]:
+    """Flatten nested module items"""
+    result: List[dict] = []
+
+    for item in items:
+        item['indent'] = indent
+
+        subitems = []
+        if 'items' in item:
+            subitems = flatten_items(item['items'], indent=indent+1)
+            del item['items']
+
+        result.append(item)
+        result += subitems
+
+    return result
+
 def item_type(item: dict) -> str:
     if "page" in item:
         return "Page"
@@ -131,29 +148,48 @@ class CanvasSync:
 
         return None
 
-    def upload_file(self, filepath: Path) -> Tuple[bool, File]:
+    def upload_file(self, filepath: Path, check_contents: bool = False) -> Tuple[bool, File]:
+        """Upload a file.
+
+        If the file already exists on Canvas and does not need to be updated,
+        return the existing File object.
+
+        Args:
+            filepath (Path): Path to file. check_contents (bool, optional):
+            Always check file contents. Defaults to False.
+
+        Returns:
+            Tuple[bool, File]: flag indicating if file was uploaded and File
+            object.
+        """
         # Bail if the file doesn't exist
         if not filepath.exists():
-            raise ValueError(f"File '{filepath:}' does not exist")
+            raise FileNotFoundError(f"File '{filepath:}' does not exist")
 
         # See if a file by this name exists
         file: Optional[File] = self.get_file(filepath.name)
 
-        # If so, compare contents
+        # If so, check if file has been modified
         if file is not None:
-            logging.debug("Getting file contents")
-            old_contents = file.get_contents(binary=True)
+            if check_contents:
+                logging.debug("Getting file contents")
+                old_contents = file.get_contents(binary=True)
 
-            with filepath.open('rb') as f:
-                new_contents = f.read()
+                with filepath.open('rb') as f:
+                    new_contents = f.read()
 
-            # Contents differ. Delete the old file and force an upload.
-            if new_contents != old_contents:
-                logging.debug("File contents differ")
-                file.delete()
-                file = None
+                # Contents differ. Delete the old file and force an upload.
+                if new_contents != old_contents:
+                    logging.debug("File contents differ")
+                    file = None
+                else:
+                    logging.debug("File contents identical")
             else:
-                logging.debug("File contents identical")
+                modified = datetime.datetime.fromtimestamp(filepath.stat().st_mtime, tz=datetime.timezone.utc)
+
+                if modified > file.modified_at_date:
+                    logging.debug("File modified")
+                    file = None
 
         if file is not None:
             return False, file
@@ -260,61 +296,68 @@ class CanvasSync:
                 logging.debug("Updating course syllabus")
                 course.update(course={'syllabus_body': html})
 
-    def flatten_items(self, items: List[dict], indent: int=0) -> List[dict]:
-        """Flatten nested module items"""
-        result: List[dict] = []
+    def find_module_item(self, item: Any, idx: int, module_items: List[ModuleItem]) -> Optional[ModuleItem]:
+        """Find a module item corresponding to an item dictionary.
 
-        for item in items:
-            item['indent'] = indent
+        Args:
+            item (Any): An item dictionary.
+            idx (int): Item index.
+            module_items (List[ModuleItem]): All module items.
 
-            subitems = []
-            if 'items' in item:
-                subitems = self.flatten_items(item['items'], indent=indent+1)
-                del item['items']
+        Returns:
+            Optional[ModuleItem]: _description_
+        """
+        if len(module_items) > idx and module_items[idx].type == item_type(item):
+            if module_items[idx].title == item['title']:
+                return module_items[idx]
 
-            result.append(item)
-            result += subitems
+            if item_type(item) in ["SubHeader"]:
+                return module_items[idx]
 
-        return result
+        for course_item in module_items:
+             if course_item.type == item_type(item) and course_item.title == item['title']:
+                 return course_item
+
+        return None
 
     def sync_module(self, module: dict, course_module: Module, limits: Optional[str]=None):
+        if limits is not None and course_module.name not in limits:
+            return
+
         logging.debug("Synchronizing module '%s'", module['name'])
         course_module.edit(module={ 'name': module['name']
                                   , 'published': module.get('published', False)
                                   })
 
+        # Get all course module items
         course_module_items = list(course_module.get_module_items())
 
         # Flatten module items
-        module_items = self.flatten_items(module['items'])
+        module_items = flatten_items(module['items'])
 
         # Sync module items
-        idx = 0
-        course_idx = 0
+        for idx, item in enumerate(module_items):
+            course_module_item = self.find_module_item(item, idx, course_module_items)
+            logging.debug("Looking for %s", item['title'])
 
-        for item in module_items:
-            if limits is not None and item['title'] not in limits:
-                idx += 1
-                course_idx += 1
-                continue
-
-            if len(course_module_items) > idx:
-                module_item = course_module_items[course_idx]
-                if not self.sync_module_item(course_module, idx, item, module_item):
-                    course_idx += 1
+            if course_module_item is None:
+                logging.debug("Not found, creating")
+                course_module_item = self.create_module_item(course_module, item, idx)
+                course_module_items.insert(idx, course_module_item)
+                #course_module_items = list(course_module.get_module_items())
             else:
-                module_item = self.create_module_item(course_module, idx, item)
+                logging.debug("Found %s", course_module_item.title)
 
-                if self.sync_module_item(course_module, idx, item, module_item):
-                    raise ValueError("Should not have created a module item!")
+            self.sync_module_item(course_module, item, idx, course_module_item)
 
-            idx += 1
+        # Delete extra course items
+        course_module_items = list(course_module.get_module_items())
 
-        for course_module_item in course_module_items[course_idx:]:
+        for course_module_item in course_module_items[len(module_items):]:
             logging.debug("Deleting extra item: %s", course_module_item)
             course_module_item.delete()
 
-    def create_module_item(self, course_module: Module, idx: int, item: dict) -> ModuleItem:
+    def create_module_item(self, course_module: Module, item: dict, idx: int) -> ModuleItem:
         the_type = item_type(item)
 
         logging.debug("Creating module item (%s) '%s' at index %d", the_type, item['title'], idx)
@@ -365,7 +408,7 @@ class CanvasSync:
         else:
             raise ValueError(f"Can't create item type {the_type:}")
 
-    def sync_module_item(self, course_module: Any, idx: int, item: dict, course_item: Any) -> bool:
+    def sync_module_item(self, course_module: Any, item: dict, idx: int, course_item: Any):
         the_type = item_type(item)
 
         logging.debug("Synchronizing '%s' (%s) with '%s' (%s)",
@@ -374,11 +417,8 @@ class CanvasSync:
                       course_item.title,
                       course_item.type)
 
-        created: bool = False
-
-        if the_type != course_item.type or item['title'] != course_item.title:
-            course_item = self.create_module_item(course_module, idx, item)
-            created = True
+        if the_type != course_item.type:
+            raise ValueError(f"Cannot synchronize {the_type:} with {course_item.type:}")
 
         if the_type == "Page":
             html = self.render_markdown(get_page_source(item),
@@ -397,17 +437,9 @@ class CanvasSync:
             if not filepath.exists():
                 print(f"[red]Not updating because file '{filepath:}' does not exist[/red]")
             else:
-                logging.debug("Uploading file '%s'", str(filepath))
-                file_created, file = self.upload_file(filepath)
+                _, file = self.upload_file(filepath)
 
-                if file_created:
-                    # Uploading the file deletes the old course item
-                    course_item = course_module.create_module_item(module_item={ 'title': item['title']
-                                                                               , 'type': "File"
-                                                                               , 'position': idx+1
-                                                                               , 'content_id': file.id
-                                                                               })
-                    created = True
+                file.update(hidden=not item.get('published', False))
         elif the_type == "Assignment":
             assignment = self.get_assignment(item['title'])
 
@@ -432,17 +464,8 @@ class CanvasSync:
             raise ValueError(f"Can't handle item type {the_type:}")
 
         logging.debug("Updating %s '%s'", course_item.type, item['title'])
-        if course_item.type == "File":
-            course_item.edit(module_item={ 'title': item['title']
-                                         , 'indent': item['indent']
-                                         })
-
-            file = self.course.get_file(course_item.content_id)
-            file.update(hidden=not item.get('published', False))
-        else:
-            course_item.edit(module_item={ 'title': item['title']
-                                         , 'indent': item['indent']
-                                         , 'published': item.get('published', False)
-                                         })
-
-        return created
+        course_item.edit(module_item={ 'title': item['title']
+                                     , 'indent': item['indent']
+                                     , 'published': item.get('published', False)
+                                     , 'position': idx+1
+                                     })
