@@ -24,7 +24,7 @@ TextSource: TypeAlias = Path | str
 """A text source. Either a path to a file or a raw string."""
 
 def normalize_html(html: str) -> str:
-    soup = BeautifulSoup(html, 'html.parser')
+    soup = BeautifulSoup(html, 'lxml')
 
     return soup.prettify()
 
