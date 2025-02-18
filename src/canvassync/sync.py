@@ -293,10 +293,26 @@ class CanvasSync:
         jinja_text = self.render_template(source, template_vars)
 
         # Render using pandoc
-        return pypandoc.convert_text(jinja_text,
+        html = pypandoc.convert_text(jinja_text,
                                      to='html5+raw_html+smart',
                                      format='md',
                                      extra_args=['--mathjax'])
+
+        # Upload all images
+        soup = BeautifulSoup(html, 'lxml')
+
+        for img in soup.find_all('img'):
+            # Upload image file
+            assert isinstance(source, Path)
+
+            _, file = self.upload_file(self.root / source.parent / img['src'])
+
+            # Replace image source with uploaded image
+            file_url = f"/courses/{self.course.id:}/files/{file.id:}/preview"
+
+            img['src'] = file_url
+
+        return soup.prettify()
 
     def sync(self, limits: Optional[str]=None):
         """Synchronize course"""
