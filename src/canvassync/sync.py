@@ -470,10 +470,10 @@ class CanvasSync:
 
                 file.update(hidden=not item.get('published', False))
         elif the_type == "Assignment":
-            assignment = self.get_assignment(item['title'])
+            assignment = self.get_assignment(item['assignment'])
 
             if assignment is None:
-                print("[red]Cannot find assignment %s[/red]", file=sys.stderr)
+                print(f"[red]Cannot find assignment {item['assignment']:}[/red]", file=sys.stderr)
                 sys.exit(1)
 
             course_item.edit(module_item={ 'content_id': assignment.id })
@@ -493,7 +493,12 @@ class CanvasSync:
             raise ValueError(f"Can't handle item type {the_type:}")
 
         logging.debug("Updating %s '%s'", course_item.type, item['title'])
-        course_item.edit(module_item={ 'title': item['title']
+        if 'assignment' in item:
+            title = item['assignment']
+        else:
+            title = item['title']
+
+        course_item.edit(module_item={ 'title': title
                                      , 'indent': item['indent']
                                      , 'published': item.get('published', False)
                                      , 'position': idx+1
