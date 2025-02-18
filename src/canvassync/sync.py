@@ -1,9 +1,10 @@
 import datetime
 import logging
+import re
 import sys
 from functools import cached_property
 from pathlib import Path
-from typing import Any, List, Optional, Tuple, TypeAlias
+from typing import Any, Callable, List, Optional, Tuple, TypeAlias
 
 import dateutil.parser
 import pypandoc
@@ -43,6 +44,34 @@ def parse_datetime(date: str) -> datetime.datetime:
                                              datetime.time(0, tzinfo=tzlocal.get_localzone()))
 
     return dateutil.parser.parse(date, default=default_date)
+
+def make_filter(keywords: Optional[List[str]], regexps: Optional[List[str]]=None) -> Optional[Callable[[str], bool]]:
+    """Create a string filter predicate.
+
+    The returned predicate returns true for any string that matches any of the
+    specified keywords or regular expressions.
+
+    Args:
+        keywords (Optional[List[str]]): Keywords to match.
+        regexps (Optional[List[str]], optional): Regular expressions to match. Defaults to None.
+
+    Returns:
+        Optional[Callable[[str], bool]]: Returns a filter or None if no
+          keywords or regular expressions were specified.
+    """
+    if keywords is None:
+        keywords = []
+
+    if regexps is None:
+        regexps = []
+
+    if len(keywords) == 0 and len(regexps) == 0:
+        return None
+
+    regexp = "|".join([re.escape(k) for k in keywords] + regexps)
+    pat = re.compile(regexp)
+
+    return lambda s : bool(pat.search(s))
 
 def flatten_items(items: List[dict], indent: int=0) -> List[dict]:
     """Flatten nested module items"""
@@ -283,7 +312,7 @@ class CanvasSync:
                                                                  , 'position': idx
                                                                  })
 
-            self.sync_module(module, course_module, limits=limits)
+            self.sync_module(module, course_module, pred=make_filter(limits))
 
     def sync_syllabus(self, course: Course):
         """Synchronize course syllabus"""
@@ -320,8 +349,8 @@ class CanvasSync:
 
         return None
 
-    def sync_module(self, module: dict, course_module: Module, limits: Optional[str]=None):
-        if limits is not None and course_module.name not in limits:
+    def sync_module(self, module: dict, course_module: Module, pred: Optional[Callable[[str], bool]]=None):
+        if pred is not None and not pred(course_module.name):
             return
 
         logging.debug("Synchronizing module '%s'", module['name'])
