@@ -15,6 +15,7 @@ from canvasapi import Canvas
 from canvasapi.assignment import Assignment
 from canvasapi.course import Course
 from canvasapi.file import File
+from canvasapi.folder import Folder
 from canvasapi.module import Module, ModuleItem
 from canvasapi.page import Page
 from jinja2 import Environment, FileSystemLoader
@@ -170,10 +171,29 @@ class CanvasSync:
 
         return None
 
-    def get_file(self, filename: str) -> Optional[File]:
+    def get_folder(self, folderpath: str) -> Optional[Folder]:
+        for folder in self.course.get_folders():
+            if folder.name == folderpath:
+                return folder
+
+        return None
+
+    def get_file(self, filename: str, parent_folder_path: Optional[str] = None) -> Optional[File]:
+        folder: Optional[Folder] = None
+
+        if parent_folder_path is not None:
+            folder = self.get_folder(parent_folder_path)
+            if folder is None:
+                return None
+
         for file in self.course.get_files():
             if file.filename == filename:
-                return file
+                # If folder was specified, make sure file is in folder
+                if folder is not None:
+                    if file.folder_id == folder.id:
+                        return file
+                else:
+                    return file
 
         return None
 
@@ -195,8 +215,11 @@ class CanvasSync:
         if not filepath.exists():
             raise FileNotFoundError(f"File '{filepath:}' does not exist")
 
+        # Determine file's parent folder
+        parent_folder_path: str = str(filepath.relative_to(self.root).parent)
+
         # See if a file by this name exists
-        file: Optional[File] = self.get_file(filepath.name)
+        file: Optional[File] = self.get_file(filepath.name, parent_folder_path=parent_folder_path)
 
         # If so, check if file has been modified
         if file is not None:
@@ -225,7 +248,7 @@ class CanvasSync:
 
         if file is None:
             logging.debug("Uploading '%s'", str(filepath))
-            success, response = self.course.upload(filepath)
+            success, response = self.course.upload(filepath, parent_folder_path=parent_folder_path)
             if success:
                 return True, self.canvas.get_file(response['id'])
 
