@@ -337,7 +337,7 @@ class CanvasSync:
 
         return soup.prettify()
 
-    def sync(self, limits: Optional[str]=None):
+    def sync(self, limits: Optional[List[str]]=None):
         """Synchronize course"""
         self.sync_syllabus(self.course)
 
