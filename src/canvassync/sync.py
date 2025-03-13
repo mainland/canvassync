@@ -535,6 +535,10 @@ class CanvasSync:
                 if date_attr in item:
                     dt = parse_datetime(item[date_attr])
                     assignment.edit(assignment={date_attr: dt.isoformat()})
+
+            for attr in ['points_possible']:
+                if attr in item:
+                    assignment.edit(assignment={attr: item[attr]})
         else:
             raise ValueError(f"Can't handle item type {the_type:}")
 
