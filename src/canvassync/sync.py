@@ -302,7 +302,7 @@ class CanvasSync:
         # Create and render template
         template = env.from_string(text)
 
-        return template.render(site=self.config['data'])
+        return template.render(site=self.config.get('data', None))
 
     def canvas_link(self, value):
         page = self.get_page_by_title(value)
