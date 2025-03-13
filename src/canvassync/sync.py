@@ -376,11 +376,18 @@ class CanvasSync:
             Optional[ModuleItem]: _description_
         """
         if len(module_items) > idx and module_items[idx].type == item_type(item):
+            # Items with the same title always match
             if module_items[idx].title == item['title']:
                 return module_items[idx]
 
+            # Two sub-headers always match (we'll rename the subheader)
             if item_type(item) in ["SubHeader"]:
                 return module_items[idx]
+
+        # Don't match sub-headers by title if they're not in the same position
+        # because the same sub-header may occur more than once, e.g., "Reading"
+        if item_type(item) in ["SubHeader"]:
+            return None
 
         for course_item in module_items:
              if course_item.type == item_type(item) and course_item.title == item['title']:
