@@ -412,8 +412,8 @@ class CanvasSync:
 
         # Sync module items
         for idx, item in enumerate(module_items):
-            course_module_item = self.find_module_item(item, idx, course_module_items)
             logging.debug("Looking for %s", item['title'])
+            course_module_item = self.find_module_item(item, idx, course_module_items)
 
             if course_module_item is None:
                 logging.debug("Not found, creating")
