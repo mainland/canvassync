@@ -325,6 +325,10 @@ class CanvasSync:
         # Use MathJax to render math.
         extra_args = ['--mathjax']
 
+        # Pass metadata from config
+        for key, value in self.config.get('pandoc_metadata', {}).items():
+            extra_args += ['--metadata', f'{key}={value}']
+
         # Collect bundled Lua filters
         filter_dir = importlib.resources.files('canvassync').joinpath('filters')
 
