@@ -22,5 +22,8 @@ dependencies = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+canvassync = ["py.typed"]
+
 [project.scripts]
 canvas-sync = "canvassync.command_line:sync"
