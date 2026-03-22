@@ -23,7 +23,10 @@ dependencies = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-canvassync = ["py.typed"]
+canvassync = [
+    "py.typed",
+    "filters/*.lua",
+]
 
 [project.scripts]
 canvas-sync = "canvassync.command_line:sync"

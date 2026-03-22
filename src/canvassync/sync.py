@@ -1,7 +1,9 @@
 import datetime
+import importlib.resources
 import logging
 import re
 import sys
+from contextlib import ExitStack
 from functools import cached_property
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Tuple, TypeAlias
@@ -313,13 +315,30 @@ class CanvasSync:
 
     def render_markdown(self, source: TextSource, template_vars: Optional[dict]=None) -> str:
         """Render Markdown (using pandoc)"""
+        # First render Jinja templates in the Markdown source to get the final
+        # Markdown text to convert to HTML with pandoc.
         jinja_text = self.render_template(source, template_vars)
 
-        # Render using pandoc
-        html = pypandoc.convert_text(jinja_text,
-                                     to='html5+raw_html+smart',
-                                     format='md',
-                                     extra_args=['--mathjax'])
+        # Extra Pandoc arguments to use when rendering Markdown.
+        extra_args: List[str] = []
+
+        # Use MathJax to render math.
+        extra_args = ['--mathjax']
+
+        # Collect bundled Lua filters
+        filter_dir = importlib.resources.files('canvassync').joinpath('filters')
+
+        with ExitStack() as stack:
+            for item in sorted(filter_dir.iterdir(), key=lambda f: f.name):
+                if item.name.endswith('.lua'):
+                    path = stack.enter_context(importlib.resources.as_file(item))
+                    extra_args += ['--lua-filter', str(path)]
+
+            # Render using pandoc
+            html = pypandoc.convert_text(jinja_text,
+                                         to='html5+raw_html+smart',
+                                         format='md',
+                                         extra_args=extra_args)
 
         # Upload all images
         soup = BeautifulSoup(html, 'lxml')
