@@ -160,7 +160,10 @@ class SyncCommand(Command):
         courses = self.sync_obj.canvas.get_courses()
 
         for course in courses:
-            print(f"Course Name: {course.name}, SIS ID: |{course.sis_course_id}|")
+            if hasattr(course, 'sis_course_id'):
+                print(f"Course Name: {course.name}, SIS ID: '{course.sis_course_id}'")
+            else:
+                print(f"Course Name: {course.name}")
 
     def roster(self, args: Namespace):
         enrollments = self.sync_obj.course.get_enrollments()
