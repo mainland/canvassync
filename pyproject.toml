@@ -16,6 +16,7 @@ dependencies = [
     "pypandoc_binary",
     "python-dateutil",
     "tzlocal",
+    "css-inline",
     "rich",
 ]
 

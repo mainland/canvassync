@@ -8,6 +8,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Tuple, TypeAlias
 
+import css_inline
 import dateutil.parser
 import pypandoc
 import tzlocal
@@ -343,6 +344,17 @@ class CanvasSync:
                                          to='html5+raw_html+smart',
                                          format='md',
                                          extra_args=extra_args)
+
+        # Attach co-located CSS file if it exists.
+        if isinstance(source, Path):
+            css_path = self.root / source.with_suffix('.css')
+            if css_path.exists():
+                css = css_path.read_text(encoding="utf8")
+                html = f"<style>\n{css}\n</style>\n{html}"
+
+        # Inline co-located CSS file onto elements since Canvas strips <style>
+        # blocks.
+        html = css_inline.inline(html)
 
         # Upload all images
         soup = BeautifulSoup(html, 'lxml')
