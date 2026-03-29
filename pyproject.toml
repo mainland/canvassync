@@ -20,6 +20,16 @@ dependencies = [
     "rich",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "docformatter",
+    "mypy",
+    "pandas-stubs",
+    "ruff",
+    "types-PyYAML",
+    "types-python-dateutil",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
@@ -28,6 +38,42 @@ canvassync = [
     "py.typed",
     "filters/*.lua",
 ]
+
+[tool.ruff]
+line-length = 79
+target-version = "py310"
+
+[tool.ruff.lint]
+extend-select = [
+  "UP",   # pyupgrade
+  "E501", # line too long
+  "E",    # pycodestyle
+  "F",    # Pyflakes
+  "B",    # flake8-bugbear
+  "SIM",  # flake8-simplify
+  "I",    # isort
+]
+
+[tool.docformatter]
+in-place = true
+recursive = true
+wrap-summaries = 79
+wrap-descriptions = 72
+close-quotes-on-newline = true
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+strict = true
+
+[[tool.mypy.overrides]]
+module = [
+    "canvasapi.*",
+    "pypandoc.*",
+    "tzlocal.*",
+    "bs4.*",
+]
+ignore_missing_imports = true
 
 [project.scripts]
 canvas-sync = "canvassync.command_line:sync"
