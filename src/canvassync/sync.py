@@ -447,7 +447,9 @@ class CanvasSync:
 
             html = self.render_markdown(Path(self.config["syllabus"]))
 
-            if not html_equiv(course.syllabus_body, html):
+            if course.syllabus_body is None or not html_equiv(
+                course.syllabus_body, html
+            ):
                 logging.debug("Updating course syllabus")
                 course.update(course={"syllabus_body": html})
 
