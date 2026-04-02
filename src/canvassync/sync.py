@@ -511,7 +511,7 @@ class CanvasSync:
 
         # Flatten module items
         module_items = flatten_items(
-            cast(list[ModuleItemConfig], module["items"])
+            cast(list[ModuleItemConfig], module.get("items", []))
         )
 
         # Sync module items
