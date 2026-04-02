@@ -210,7 +210,7 @@ class SyncCommand(Command):
             if enrollment.type == "StudentEnrollment"
         ]
 
-        items: list[tuple[str, str, str, str]] = []
+        items: list[tuple[str, str, str, str, str]] = []
 
         sections: dict[str, str] = {}
 
@@ -237,11 +237,17 @@ class SyncCommand(Command):
 
             if args.section is None or re.search(args.section, section_name):
                 items.append(
-                    (first, last, section_name, f"{login_id:}@drexel.edu")
+                    (
+                        first,
+                        last,
+                        section_name,
+                        login_id,
+                        f"{login_id:}@drexel.edu",
+                    )
                 )
 
         if args.email:
-            emails = "\n".join(f"{s[0]:} {s[1]:} <{s[3]:}>" for s in items)
+            emails = "\n".join(f"{s[0]:} {s[1]:} <{s[4]:}>" for s in items)
 
             if args.output:
                 with args.output.open("w", encoding="utf8") as f:
@@ -250,7 +256,8 @@ class SyncCommand(Command):
                 print(emails)
         else:
             df = pd.DataFrame(
-                items, columns=["First", "Last", "Section", "Email"]
+                items,
+                columns=["First", "Last", "Section", "Username", "Email"],
             )
 
             if args.output:
