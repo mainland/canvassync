@@ -329,7 +329,11 @@ class CanvasSync:
             text = source
 
         loader = FileSystemLoader(self.root)
-        env = Environment(loader=loader)
+        env = Environment(
+            loader=loader,
+            comment_start_string="{%",
+            comment_end_string="%}",
+        )
 
         # Add filters
         env.filters["canvas_link"] = self.canvas_link
