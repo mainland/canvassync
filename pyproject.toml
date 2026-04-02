@@ -25,6 +25,7 @@ dev = [
     "docformatter",
     "mypy",
     "pandas-stubs",
+    "pre-commit",
     "ruff",
     "types-PyYAML",
     "types-python-dateutil",
