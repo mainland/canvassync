@@ -7,7 +7,7 @@ from collections.abc import Callable
 from contextlib import ExitStack
 from functools import cached_property
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, cast
 
 import css_inline
 import dateutil.parser
@@ -31,11 +31,16 @@ TextSource: TypeAlias = Path | str
 Either a path to a file or a raw string.
 """
 
+ConfigDict: TypeAlias = dict[str, Any]
+"""A course configuration dictionary."""
+
+ModuleItemConfig: TypeAlias = dict[str, Any]
+
 
 def normalize_html(html: str) -> str:
     soup = BeautifulSoup(html, "lxml")
 
-    return soup.prettify()
+    return cast(str, soup.prettify())
 
 
 def html_equiv(a: str, b: str) -> bool:
@@ -91,9 +96,11 @@ def make_filter(
     return lambda s: bool(pat.search(s))
 
 
-def flatten_items(items: list[dict], indent: int = 0) -> list[dict]:
+def flatten_items(
+    items: list[ModuleItemConfig], indent: int = 0
+) -> list[ModuleItemConfig]:
     """Flatten nested module items."""
-    result: list[dict] = []
+    result: list[ModuleItemConfig] = []
 
     for item in items:
         item["indent"] = indent
@@ -109,7 +116,7 @@ def flatten_items(items: list[dict], indent: int = 0) -> list[dict]:
     return result
 
 
-def item_type(item: dict) -> str:
+def item_type(item: ModuleItemConfig) -> str:
     if "page" in item:
         return "Page"
 
@@ -128,25 +135,25 @@ def item_type(item: dict) -> str:
     return "SubHeader"
 
 
-def get_page_source(item: dict) -> TextSource:
+def get_page_source(item: ModuleItemConfig) -> TextSource:
     assert item_type(item) == "Page"
 
     if "page" in item:
         return Path(item["page"])
     else:
-        return item["page_contents"]
+        return cast(str, item["page_contents"])
 
 
 class CanvasSync:
-    config: dict
+    config: ConfigDict
     """Canvas sync configuration."""
 
     root: Path
     """Root path."""
 
-    def __init__(self, config_path: Path, root: Path | None = None):
+    def __init__(self, config_path: Path, root: Path | None = None) -> None:
         with config_path.open("r", encoding="utf8") as f:
-            self.config = yaml.safe_load(f)
+            self.config = cast(ConfigDict, yaml.safe_load(f))
 
         if root is None:
             self.root = config_path.parent
@@ -156,17 +163,17 @@ class CanvasSync:
     @property
     def api_url(self) -> str:
         """Canvas API URL."""
-        return self.config["api_url"]
+        return cast(str, self.config["api_url"])
 
     @property
     def api_key(self) -> str:
         """Canvas API key."""
-        return self.config["api_key"]
+        return cast(str, self.config["api_key"])
 
     @property
     def course_sis(self) -> str:
         """Course SIS."""
-        return self.config["course_sis"]
+        return cast(str, self.config["course_sis"])
 
     @cached_property
     def canvas(self) -> Canvas:
@@ -174,7 +181,7 @@ class CanvasSync:
         return Canvas(self.api_url, self.api_key)
 
     @cached_property
-    def course(self):
+    def course(self) -> Course:
         """Canvas course."""
         kwargs = {"include[]": "syllabus_body"}
 
@@ -312,7 +319,7 @@ class CanvasSync:
         return page
 
     def render_template(
-        self, source: TextSource, template_vars: dict | None = None
+        self, source: TextSource, template_vars: ConfigDict | None = None
     ) -> str:
         """Render a template using Jinja."""
         if isinstance(source, Path):
@@ -328,7 +335,7 @@ class CanvasSync:
         env.filters["canvas_link"] = self.canvas_link
 
         # Add template variables
-        env.globals.update(self.config.get("vars", {}))
+        env.globals.update(cast(ConfigDict, self.config.get("vars", {})))
         if template_vars is not None:
             env.globals.update(template_vars)
 
@@ -337,15 +344,15 @@ class CanvasSync:
 
         return template.render(site=self.config.get("data", None))
 
-    def canvas_link(self, value):
+    def canvas_link(self, value: str) -> str:
         page = self.get_page_by_title(value)
         if page is None:
             return ""
 
-        return page.html_url
+        return cast(str, page.html_url)
 
     def render_markdown(
-        self, source: TextSource, template_vars: dict | None = None
+        self, source: TextSource, template_vars: ConfigDict | None = None
     ) -> str:
         """Render Markdown (using pandoc)."""
         # First render Jinja templates in the Markdown source to get the final
@@ -401,22 +408,25 @@ class CanvasSync:
             # Upload image file
             assert isinstance(source, Path)
 
-            _, file = self.upload_file(self.root / source.parent / img["src"])
+            img_src = cast(str, img["src"])
+            _, file = self.upload_file(self.root / source.parent / img_src)
 
             # Replace image source with uploaded image
             file_url = f"/courses/{self.course.id:}/files/{file.id:}/preview"
 
             img["src"] = file_url
 
-        return soup.prettify()
+        return cast(str, soup.prettify())
 
-    def sync(self, limits: list[str] | None = None):
+    def sync(self, limits: list[str] | None = None) -> None:
         """Synchronize course."""
         self.sync_syllabus(self.course)
 
         course_modules = self.course.get_modules()
 
-        for idx, module in enumerate(self.config["modules"]):
+        for idx, module in enumerate(
+            cast(list[ModuleItemConfig], self.config["modules"])
+        ):
             if len(list(course_modules)) > idx:
                 course_module = course_modules[idx]
             else:
@@ -426,7 +436,7 @@ class CanvasSync:
 
             self.sync_module(module, course_module, pred=make_filter(limits))
 
-    def sync_syllabus(self, course: Course):
+    def sync_syllabus(self, course: Course) -> None:
         """Synchronize course syllabus."""
         if "syllabus" in self.config:
             logging.debug("Rendering syllabus")
@@ -438,7 +448,7 @@ class CanvasSync:
                 course.update(course={"syllabus_body": html})
 
     def find_module_item(
-        self, item: Any, idx: int, module_items: list[ModuleItem]
+        self, item: ModuleItemConfig, idx: int, module_items: list[ModuleItem]
     ) -> ModuleItem | None:
         """Find a module item corresponding to an item dictionary.
 
@@ -477,10 +487,10 @@ class CanvasSync:
 
     def sync_module(
         self,
-        module: dict,
+        module: ModuleItemConfig,
         course_module: Module,
         pred: Callable[[str], bool] | None = None,
-    ):
+    ) -> None:
         if pred is not None and not pred(course_module.name):
             return
 
@@ -496,7 +506,9 @@ class CanvasSync:
         course_module_items = list(course_module.get_module_items())
 
         # Flatten module items
-        module_items = flatten_items(module["items"])
+        module_items = flatten_items(
+            cast(list[ModuleItemConfig], module["items"])
+        )
 
         # Sync module items
         for idx, item in enumerate(module_items):
@@ -525,7 +537,7 @@ class CanvasSync:
             course_module_item.delete()
 
     def create_module_item(
-        self, course_module: Module, item: dict, idx: int
+        self, course_module: Module, item: ModuleItemConfig, idx: int
     ) -> ModuleItem:
         the_type = item_type(item)
 
@@ -602,8 +614,12 @@ class CanvasSync:
             raise ValueError(f"Can't create item type {the_type:}")
 
     def sync_module_item(
-        self, course_module: Any, item: dict, idx: int, course_item: Any
-    ):
+        self,
+        course_module: Module,
+        item: ModuleItemConfig,
+        idx: int,
+        course_item: ModuleItem,
+    ) -> None:
         the_type = item_type(item)
 
         logging.debug(

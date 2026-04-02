@@ -2,6 +2,7 @@ import argparse
 import logging
 import re
 import sys
+from abc import ABC, abstractmethod
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 
@@ -12,20 +13,20 @@ from rich import print
 from .sync import CanvasSync
 
 
-class Command:
+class Command(ABC):
     description: str
     """Command line description."""
 
     def __init__(self, description: str):
         self.description = description
 
-    def add_arguments(self, parser: ArgumentParser):
-        pass
+    @abstractmethod
+    def add_arguments(self, parser: ArgumentParser) -> None: ...
 
-    def handle(self, parser: ArgumentParser, args: Namespace):
-        pass
+    @abstractmethod
+    def handle(self, parser: ArgumentParser, args: Namespace) -> int: ...
 
-    def run(self):
+    def run(self) -> int:
         parser = ArgumentParser(
             description=self.description,
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -83,10 +84,10 @@ class SyncCommand(Command):
     sync_obj: CanvasSync
     """Sync."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(description="Synchronize with Canvas")
 
-    def add_arguments(self, parser: ArgumentParser):
+    def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument("--config", type=Path, required=True)
         parser.add_argument("--root", type=Path)
 
@@ -144,7 +145,7 @@ class SyncCommand(Command):
         roster_parser.add_argument("--output", "-o", type=Path)
         roster_parser.set_defaults(func=self.roster)
 
-    def handle(self, parser: ArgumentParser, args: Namespace):
+    def handle(self, parser: ArgumentParser, args: Namespace) -> int:
         if not hasattr(args, "func"):
             parser.error("Command not specified")
 
@@ -161,7 +162,7 @@ class SyncCommand(Command):
             logging.exception("Error")
             return -1
 
-    def dump(self, args: Namespace):
+    def dump(self, args: Namespace) -> None:
         print(self.sync_obj.config)
         print(yaml.dump(self.sync_obj.config))
 
@@ -176,10 +177,10 @@ class SyncCommand(Command):
                     # print(page.body)
                     page.edit(wiki_page={"body": "<p>Boop!</p>"})
 
-    def sync(self, args: Namespace):
+    def sync(self, args: Namespace) -> None:
         self.sync_obj.sync(limits=args.limit)
 
-    def render(self, args: Namespace):
+    def render(self, args: Namespace) -> None:
         rendered = self.sync_obj.render_markdown(args.path)
 
         if args.output:
@@ -188,7 +189,7 @@ class SyncCommand(Command):
         else:
             print(rendered)
 
-    def courses(self, args: Namespace):
+    def courses(self, args: Namespace) -> None:
         courses = self.sync_obj.canvas.get_courses()
 
         for course in courses:
@@ -200,7 +201,7 @@ class SyncCommand(Command):
             else:
                 print(f"Course Name: {course.name}")
 
-    def roster(self, args: Namespace):
+    def roster(self, args: Namespace) -> None:
         enrollments = self.sync_obj.course.get_enrollments()
 
         students = [
@@ -258,6 +259,6 @@ class SyncCommand(Command):
                 print(df)
 
 
-def sync():
+def sync() -> int:
     command = SyncCommand()
     return command.run()
