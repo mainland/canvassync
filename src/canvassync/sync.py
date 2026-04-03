@@ -151,6 +151,9 @@ class CanvasSync:
     root: Path
     """Root path."""
 
+    _folders: list[Folder] | None = None
+    """Cached folders"""
+
     def __init__(self, config_path: Path, root: Path | None = None) -> None:
         with config_path.open("r", encoding="utf8") as f:
             self.config = cast(ConfigDict, yaml.safe_load(f))
@@ -199,7 +202,10 @@ class CanvasSync:
         return None
 
     def get_folder(self, folderpath: str) -> Folder | None:
-        for folder in self.course.get_folders():
+        if self._folders is None:
+            self._folders = list(self.course.get_folders())
+
+        for folder in self._folders:
             if re.sub(r"^course files/", "", folder.full_name) == folderpath:
                 return folder
 
@@ -288,6 +294,13 @@ class CanvasSync:
                 filepath, parent_folder_path=parent_folder_path
             )
             if success:
+                # If we created a new folder, invalidate folder cache
+                if (
+                    self._folders is not None
+                    and self.get_folder(parent_folder_path) is None
+                ):
+                    self._folders = None
+
                 return True, self.canvas.get_file(response["id"])
 
             raise ValueError(f"Could not upload {filepath:}")
