@@ -523,17 +523,32 @@ class CanvasSync:
                 item, idx, course_module_items
             )
 
+            # If the item doesn't exist we need to create it. If it does exist
+            # but we can't synchronize it (e.g., because the file has changed),
+            # we need to delete and re-create it.
+            create = False
+
             if course_module_item is None:
                 logging.debug("Not found, creating")
+                create = True
+            else:
+                if not self.sync_module_item(
+                    course_module, item, idx, course_module_item
+                ):
+                    logging.debug(
+                        "Cannot synchronize, deleting and re-creating"
+                    )
+                    course_module_item.delete()
+                    create = True
+
+            if create:
                 course_module_item = self.create_module_item(
                     course_module, item, idx
                 )
                 course_module_items.insert(idx, course_module_item)
+                # Re-fetching module items reduces churn, but it is expensive,
+                # so we suffer the temporary churn.
                 # course_module_items = list(course_module.get_module_items())
-            else:
-                logging.debug("Found %s", course_module_item.title)
-
-            self.sync_module_item(course_module, item, idx, course_module_item)
 
         # Delete extra course items
         course_module_items = list(course_module.get_module_items())
@@ -625,7 +640,7 @@ class CanvasSync:
         item: ModuleItemConfig,
         idx: int,
         course_item: ModuleItem,
-    ) -> None:
+    ) -> bool:
         the_type = item_type(item)
 
         logging.debug(
@@ -667,6 +682,9 @@ class CanvasSync:
                 _, file = self.upload_file(filepath)
 
                 file.update(hidden=not item.get("published", False))
+
+                if course_item.content_id != file.id:
+                    return False
         elif the_type == "Assignment":
             assignment = self.get_assignment(item["assignment"])
 
@@ -714,3 +732,5 @@ class CanvasSync:
             attrs["published"] = item.get("published", False)
 
         course_item.edit(module_item=attrs)
+
+        return True
