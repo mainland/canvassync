@@ -703,11 +703,14 @@ class CanvasSync:
         logging.debug("Updating %s '%s'", course_item.type, item["title"])
         title = item["assignment"] if "assignment" in item else item["title"]
 
-        course_item.edit(
-            module_item={
-                "title": title,
-                "indent": item["indent"],
-                "published": item.get("published", False),
-                "position": idx + 1,
-            }
-        )
+        attrs = {
+            "title": title,
+            "indent": item["indent"],
+            "position": idx + 1,
+        }
+
+        # We can't unpublish a file
+        if the_type != "File":
+            attrs["published"] = item.get("published", False)
+
+        course_item.edit(module_item=attrs)
