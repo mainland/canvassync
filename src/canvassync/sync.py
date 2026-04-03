@@ -221,7 +221,12 @@ class CanvasSync:
             if folder is None:
                 return None
 
-        for file in self.course.get_files():
+        if folder is None:
+            files = self.course.get_files()
+        else:
+            files = folder.get_files()
+
+        for file in files:
             if file.filename == filename:
                 # If folder was specified, make sure file is in folder
                 if folder is not None:
