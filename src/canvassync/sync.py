@@ -200,7 +200,7 @@ class CanvasSync:
 
     def get_folder(self, folderpath: str) -> Folder | None:
         for folder in self.course.get_folders():
-            if folder.name == folderpath:
+            if re.sub(r"^course files/", "", folder.full_name) == folderpath:
                 return folder
 
         return None
