@@ -728,7 +728,13 @@ class CanvasSync:
             for date_attr in ["due_at", "lock_at", "unlock_at"]:
                 if date_attr in item:
                     dt = parse_datetime(item[date_attr])
-                    assignment.edit(assignment={date_attr: dt.isoformat()})
+
+                    if hasattr(
+                        assignment, date_attr
+                    ) and dt != dateutil.parser.isoparse(
+                        getattr(assignment, date_attr)
+                    ):
+                        assignment.edit(assignment={date_attr: dt.isoformat()})
 
             for attr in ["points_possible"]:
                 if attr in item:
