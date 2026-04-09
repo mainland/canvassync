@@ -526,6 +526,18 @@ class CanvasSync:
             }
         )
 
+        # Set date attributes
+        for date_attr in ["unlock_at"]:
+            if date_attr in module:
+                dt = parse_datetime(module[date_attr])
+
+                if not hasattr(module, date_attr) or (
+                    hasattr(module, date_attr)
+                    and dt
+                    != dateutil.parser.isoparse(getattr(module, date_attr))
+                ):
+                    course_module.edit(module={date_attr: dt.isoformat()})
+
         # Get all course module items
         course_module_items = list(course_module.get_module_items())
 
