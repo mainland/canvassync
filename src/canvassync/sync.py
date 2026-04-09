@@ -740,10 +740,11 @@ class CanvasSync:
                 if date_attr in item:
                     dt = parse_datetime(item[date_attr])
 
-                    if hasattr(
-                        assignment, date_attr
-                    ) and dt != dateutil.parser.isoparse(
-                        getattr(assignment, date_attr)
+                    if not getattr(assignment, date_attr, None) or (
+                        dt
+                        != dateutil.parser.isoparse(
+                            getattr(assignment, date_attr)
+                        )
                     ):
                         assignment.edit(assignment={date_attr: dt.isoformat()})
 
