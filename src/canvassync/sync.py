@@ -609,6 +609,7 @@ class CanvasSync:
                     "type": "ExternalUrl",
                     "external_url": item["url"],
                     "position": idx + 1,
+                    "new_tab": item.get("new_tab", False),
                 }
             )
         elif the_type == "SubHeader":
@@ -674,18 +675,28 @@ class CanvasSync:
                 f"Cannot synchronize {the_type:} with {course_item.type:}"
             )
 
+        # Determine item title, indent, and position
+        title = item["assignment"] if "assignment" in item else item["title"]
+
+        attrs = {
+            "title": title,
+            "indent": item["indent"],
+            "position": idx + 1,
+        }
+
         if the_type == "Page":
             html = self.render_markdown(
                 get_page_source(item), template_vars=item.get("vars")
             )
             page = self.update_page_by_title(item["title"], html)
 
-            course_item.edit(module_item={"page_url": page.url})
+            attrs["page_url"] = page.url
         elif the_type == "ExternalUrl":
             if course_item.external_url != item["url"]:
-                course_item.edit(
-                    module_item={"external_url": item["url"], "new_tab": False}
-                )
+                attrs["external_url"] = item["url"]
+
+            if course_item.new_tab != item.get("new_tab", False):
+                attrs["new_tab"] = item.get("new_tab", False)
         elif the_type == "SubHeader":
             pass
         elif the_type == "File":
@@ -713,7 +724,7 @@ class CanvasSync:
                 )
                 sys.exit(1)
 
-            course_item.edit(module_item={"content_id": assignment.id})
+            attrs["content_id"] = assignment.id
 
             if "description" in item:
                 html = self.render_markdown(
@@ -743,13 +754,6 @@ class CanvasSync:
             raise ValueError(f"Can't handle item type {the_type:}")
 
         logging.debug("Updating %s '%s'", course_item.type, item["title"])
-        title = item["assignment"] if "assignment" in item else item["title"]
-
-        attrs = {
-            "title": title,
-            "indent": item["indent"],
-            "position": idx + 1,
-        }
 
         # We can't unpublish a file
         if the_type != "File":
