@@ -7,7 +7,7 @@ from collections.abc import Callable
 from contextlib import ExitStack
 from functools import cached_property
 from pathlib import Path
-from typing import Any, TypeAlias, cast
+from typing import Any, Literal, TypeAlias, cast
 
 import css_inline
 import dateutil.parser
@@ -116,7 +116,10 @@ def flatten_items(
     return result
 
 
-def item_type(item: ModuleItemConfig) -> str:
+ItemType = Literal["Page", "ExternalUrl", "SubHeader", "File", "Assignment"]
+
+
+def item_type(item: ModuleItemConfig) -> ItemType:
     if "page" in item:
         return "Page"
 
