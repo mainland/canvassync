@@ -172,19 +172,12 @@ class SyncCommand(Command):
             return -1
 
     def dump(self, args: Namespace) -> None:
-        print(self.sync_obj.config)
-        print(yaml.dump(self.sync_obj.config))
-
         for module in self.sync_obj.course.get_modules():
             print(module.name)
 
             for item in module.get_module_items():
                 indent = " " * item.indent
                 print(f"{indent:}{item.title:} ({item.type:})")
-                if item.type == "Page":
-                    page = self.sync_obj.course.get_page(item.page_url)
-                    # print(page.body)
-                    page.edit(wiki_page={"body": "<p>Boop!</p>"})
 
     def sync(self, args: Namespace) -> None:
         self.sync_obj.sync(limits=args.limit)
