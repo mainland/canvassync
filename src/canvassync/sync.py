@@ -746,11 +746,19 @@ class CanvasSync:
                 html = self.render_markdown(
                     Path(item["description"]), template_vars=item.get("vars")
                 )
+            elif "description_contents" in item:
+                html = self.render_markdown(
+                    cast(str, item["description_contents"]),
+                    template_vars=item.get("vars"),
+                )
+            else:
+                html = None
 
-                if assignment.description is None or not html_equiv(
-                    assignment.description, html
-                ):
-                    assignment.edit(assignment={"description": html})
+            if html is not None and (
+                assignment.description is None
+                or not html_equiv(assignment.description, html)
+            ):
+                assignment.edit(assignment={"description": html})
 
             for date_attr in ["due_at", "lock_at", "unlock_at"]:
                 if date_attr in item:
