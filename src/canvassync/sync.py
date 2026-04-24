@@ -40,7 +40,7 @@ ModuleItemConfig: TypeAlias = dict[str, Any]
 def normalize_html(html: str) -> str:
     soup = BeautifulSoup(html, "lxml")
 
-    return cast(str, soup.prettify())
+    return soup.prettify()
 
 
 def html_equiv(a: str, b: str) -> bool:
@@ -451,7 +451,7 @@ class CanvasSync:
 
             img["src"] = file_url
 
-        return cast(str, soup.prettify())
+        return soup.prettify()
 
     def sync(self, limits: list[str] | None = None) -> None:
         """Synchronize course."""
