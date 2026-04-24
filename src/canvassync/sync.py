@@ -425,6 +425,10 @@ class CanvasSync:
                 extra_args=extra_args,
             )
 
+        return self.postprocess_html(html, source)
+
+    def postprocess_html(self, html: str, source: TextSource) -> str:
+        """Postprocess rendered HTML for Canvas."""
         # Attach co-located CSS file if it exists.
         if isinstance(source, Path):
             css_path = self.root / source.with_suffix(".css")
