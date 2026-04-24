@@ -103,14 +103,15 @@ def flatten_items(
     result: list[ModuleItemConfig] = []
 
     for item in items:
-        item["indent"] = indent
+        flat_item = dict(item)
+        flat_item["indent"] = indent
 
         subitems = []
-        if "items" in item:
-            subitems = flatten_items(item["items"], indent=indent + 1)
-            del item["items"]
+        if "items" in flat_item:
+            subitems = flatten_items(flat_item["items"], indent=indent + 1)
+            del flat_item["items"]
 
-        result.append(item)
+        result.append(flat_item)
         result += subitems
 
     return result
