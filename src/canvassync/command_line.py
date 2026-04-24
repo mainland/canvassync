@@ -90,6 +90,11 @@ class SyncCommand(Command):
     def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument("--config", type=Path, required=True)
         parser.add_argument("--root", type=Path)
+        parser.add_argument(
+            "--api-key",
+            "--canvas-api-key",
+            help="Canvas API key; overrides api_key from the config file",
+        )
 
         #
         # Subparsers for individual commands
@@ -151,7 +156,11 @@ class SyncCommand(Command):
 
         try:
             try:
-                self.sync_obj = CanvasSync(args.config, root=args.root)
+                self.sync_obj = CanvasSync(
+                    args.config,
+                    root=args.root,
+                    api_key=args.api_key,
+                )
             except yaml.YAMLError as exc:
                 print(exc, file=sys.stderr)
                 sys.exit(1)

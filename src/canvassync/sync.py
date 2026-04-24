@@ -157,9 +157,16 @@ class CanvasSync:
     _folders: list[Folder] | None = None
     """Cached folders"""
 
-    def __init__(self, config_path: Path, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        config_path: Path,
+        root: Path | None = None,
+        api_key: str | None = None,
+    ) -> None:
         with config_path.open("r", encoding="utf8") as f:
             self.config = cast(ConfigDict, yaml.safe_load(f))
+
+        self._api_key = api_key
 
         if root is None:
             self.root = config_path.parent
@@ -174,6 +181,9 @@ class CanvasSync:
     @property
     def api_key(self) -> str:
         """Canvas API key."""
+        if self._api_key is not None:
+            return self._api_key
+
         return cast(str, self.config["api_key"])
 
     @property
