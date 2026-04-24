@@ -602,51 +602,34 @@ class CanvasSync:
             idx,
         )
 
+        title = item["title"]
+
+        attrs = {
+            "title": title,
+            "type": the_type,
+            "position": idx + 1,
+            "indent": item["indent"],
+            "published": item.get("published", False),
+        }
+
         if the_type == "Page":
             html = self.render_markdown(
                 get_page_source(item), template_vars=item.get("vars")
             )
 
-            page = self.update_page_by_title(item["title"], html)
+            page = self.update_page_by_title(title, html)
 
-            return course_module.create_module_item(
-                module_item={
-                    "title": item["title"],
-                    "type": "Page",
-                    "page_url": page.url,
-                    "position": idx + 1,
-                }
-            )
+            attrs["page_url"] = page.url
         elif the_type == "ExternalUrl":
-            return course_module.create_module_item(
-                module_item={
-                    "title": item["title"],
-                    "type": "ExternalUrl",
-                    "external_url": item["url"],
-                    "position": idx + 1,
-                    "new_tab": item.get("new_tab", False),
-                }
-            )
+            attrs["external_url"] = item["url"]
+            attrs["new_tab"] = item.get("new_tab", False)
         elif the_type == "SubHeader":
-            return course_module.create_module_item(
-                module_item={
-                    "title": item["title"],
-                    "type": "SubHeader",
-                    "position": idx + 1,
-                }
-            )
+            pass
         elif the_type == "File":
             filepath: Path = self.root / Path(item["file"])
             _, file = self.upload_file(filepath)
 
-            return course_module.create_module_item(
-                module_item={
-                    "title": item["title"],
-                    "type": "File",
-                    "position": idx + 1,
-                    "content_id": file.id,
-                }
-            )
+            attrs["content_id"] = file.id
         elif the_type == "Assignment":
             assignment = self.get_assignment(item["title"])
 
@@ -657,16 +640,20 @@ class CanvasSync:
                 )
                 sys.exit(1)
 
-            return course_module.create_module_item(
-                module_item={
-                    "title": item["title"],
-                    "type": "Assignment",
-                    "position": idx + 1,
-                    "content_id": assignment.id,
-                }
-            )
+            attrs["content_id"] = assignment.id
         else:
             raise ValueError(f"Can't create item type {the_type:}")
+
+        course_item = course_module.create_module_item(module_item=attrs)
+
+        # Creating a SubHeader with published set to True doesn't work, so we
+        # have edit it as a separate step.
+        if the_type == "SubHeader":
+            course_item.edit(
+                module_item={"published": item.get("published", False)}
+            )
+
+        return course_item
 
     def sync_module_item(
         self,
