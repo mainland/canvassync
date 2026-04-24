@@ -176,7 +176,7 @@ class SyncCommand(Command):
             print(module.name)
 
             for item in module.get_module_items():
-                indent = " " * item.indent
+                indent = " " * 2 * (item.indent + 1)
                 print(f"{indent:}{item.title:} ({item.type:})")
 
     def sync(self, args: Namespace) -> None:
