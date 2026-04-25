@@ -142,6 +142,12 @@ class SyncCommand(Command):
             "--section", help="Limit roster to students from matching section"
         )
         roster_parser.add_argument(
+            "--inactive",
+            action="store_true",
+            default=False,
+            help="Include inactive students",
+        )
+        roster_parser.add_argument(
             "--email",
             action="store_true",
             default=False,
@@ -212,7 +218,10 @@ class SyncCommand(Command):
             if enrollment.type == "StudentEnrollment"
         ]
 
-        items: list[tuple[str, str, str, str, str]] = []
+        users = self.sync_obj.course.get_users()
+        user_emails = {user.id: user.email for user in users}
+
+        items: list[tuple[str, str, str, str, str, str, bool]] = []
 
         sections: dict[str, str] = {}
 
@@ -228,6 +237,8 @@ class SyncCommand(Command):
             login_id = student.user["login_id"]
 
             # Get student section
+            section_id = student.sis_section_id
+
             if student.course_section_id in sections:
                 section_name = sections[student.course_section_id]
             else:
@@ -237,19 +248,39 @@ class SyncCommand(Command):
                 section_name = section.name
                 sections[student.course_section_id] = section_name
 
-            if args.section is None or re.search(args.section, section_name):
+            # Get enrollment state
+            active = student.enrollment_state == "active"
+
+            if (args.inactive or active) and (
+                args.section is None or re.search(args.section, section_name)
+            ):
                 items.append(
                     (
                         first,
                         last,
-                        section_name,
                         login_id,
-                        f"{login_id:}@drexel.edu",
+                        user_emails.get(student.user_id, ""),
+                        section_id,
+                        section_name,
+                        active,
                     )
                 )
 
+        df = pd.DataFrame(
+            items,
+            columns=[
+                "First",
+                "Last",
+                "Username",
+                "Email",
+                "Section ID",
+                "Section Name",
+                "Enrollment State",
+            ],
+        )
+
         if args.email:
-            emails = "\n".join(f"{s[0]:} {s[1]:} <{s[4]:}>" for s in items)
+            emails = "\n".join(df["Email"])
 
             if args.output:
                 with args.output.open("w", encoding="utf8") as f:
@@ -257,11 +288,6 @@ class SyncCommand(Command):
             else:
                 print(emails)
         else:
-            df = pd.DataFrame(
-                items,
-                columns=["First", "Last", "Section", "Username", "Email"],
-            )
-
             if args.output:
                 df.to_csv(args.output)
             else:
