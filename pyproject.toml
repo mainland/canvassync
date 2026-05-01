@@ -12,6 +12,7 @@ dependencies = [
     "canvasapi",
     "jinja2",
     "lxml",
+    "openpyxl",
     "pandas",
     "pypandoc_binary",
     "python-dateutil",

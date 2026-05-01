@@ -289,7 +289,10 @@ class SyncCommand(Command):
                 print(emails)
         else:
             if args.output:
-                df.to_csv(args.output)
+                if args.output.suffix == ".xlsx":
+                    df.to_excel(args.output, index=False)
+                else:
+                    df.to_csv(args.output, index=False)
             else:
                 print(df)
 
