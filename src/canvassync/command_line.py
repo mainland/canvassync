@@ -9,6 +9,8 @@ from pathlib import Path
 import pandas as pd
 import yaml
 from rich import print
+from rich.console import Console
+from rich.markup import escape
 
 from .sync import CanvasSync
 
@@ -186,7 +188,29 @@ class SyncCommand(Command):
                 print(f"{indent:}{item.title:} ({item.type:})")
 
     def sync(self, args: Namespace) -> None:
-        self.sync_obj.sync(limits=args.limit)
+        if args.quiet:
+            self.sync_obj.sync(limits=args.limit)
+            return
+
+        console = Console()
+
+        def update_status(module: str, item: str | None) -> None:
+            if item is None:
+                status.update(
+                    f"Updating module [bold]{escape(module)}[/bold]"
+                )
+            else:
+                status.update(
+                    "Updating module "
+                    f"[bold]{escape(module)}[/bold] "
+                    f"item [bold]{escape(item)}[/bold]"
+                )
+
+        with console.status("Starting sync") as status:
+            self.sync_obj.sync(
+                limits=args.limit,
+                status_callback=update_status,
+            )
 
     def render(self, args: Namespace) -> None:
         rendered = self.sync_obj.render_markdown(args.path)

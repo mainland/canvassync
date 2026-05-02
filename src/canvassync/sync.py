@@ -458,7 +458,11 @@ class CanvasSync:
 
         return soup.prettify()
 
-    def sync(self, limits: list[str] | None = None) -> None:
+    def sync(
+        self,
+        limits: list[str] | None = None,
+        status_callback: Callable[[str, str | None], None] | None = None,
+    ) -> None:
         """Synchronize course."""
         self.sync_syllabus(self.course)
 
@@ -474,7 +478,12 @@ class CanvasSync:
                     module={"name": module["name"], "position": idx}
                 )
 
-            self.sync_module(module, course_module, pred=make_filter(limits))
+            self.sync_module(
+                module,
+                course_module,
+                pred=make_filter(limits),
+                status_callback=status_callback,
+            )
 
     def sync_syllabus(self, course: Course) -> None:
         """Synchronize course syllabus."""
@@ -532,9 +541,13 @@ class CanvasSync:
         module: ModuleItemConfig,
         course_module: Module,
         pred: Callable[[str], bool] | None = None,
+        status_callback: Callable[[str, str | None], None] | None = None,
     ) -> None:
         if pred is not None and not pred(course_module.name):
             return
+
+        if status_callback is not None:
+            status_callback(module["name"], None)
 
         logging.debug("Synchronizing module '%s'", module["name"])
         course_module.edit(
@@ -566,6 +579,9 @@ class CanvasSync:
 
         # Sync module items
         for idx, item in enumerate(module_items):
+            if status_callback is not None:
+                status_callback(module["name"], item["title"])
+
             logging.debug("Looking for %s", item["title"])
             course_module_item = self.find_module_item(
                 item, idx, course_module_items
