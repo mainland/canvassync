@@ -662,14 +662,7 @@ class CanvasSync:
 
             attrs["content_id"] = file.id
         elif the_type == "Assignment":
-            assignment = self.get_assignment(item["title"])
-
-            if assignment is None:
-                print(
-                    f"[red]Cannot find assignment {item['title']:}[/red]",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
+            assignment = self.sync_assignment_item(item)
 
             attrs["content_id"] = assignment.id
         else:
@@ -748,53 +741,9 @@ class CanvasSync:
                 if course_item.content_id != file.id:
                     return False
         elif the_type == "Assignment":
-            assignment = self.get_assignment(item["assignment"])
-
-            if assignment is None:
-                print(
-                    f"[red]Cannot find assignment {item['assignment']:}[/red]",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
+            assignment = self.sync_assignment_item(item)
 
             attrs["content_id"] = assignment.id
-
-            if "description" in item:
-                html = self.render_markdown(
-                    Path(item["description"]), template_vars=item.get("vars")
-                )
-            elif "description_contents" in item:
-                html = self.render_markdown(
-                    cast(str, item["description_contents"]),
-                    template_vars=item.get("vars"),
-                )
-            else:
-                html = None
-
-            if html is not None and (
-                assignment.description is None
-                or not html_equiv(assignment.description, html)
-            ):
-                assignment.edit(assignment={"description": html})
-
-            for date_attr in ["due_at", "lock_at", "unlock_at"]:
-                if date_attr in item:
-                    dt = parse_datetime(item[date_attr])
-
-                    if not getattr(assignment, date_attr, None) or (
-                        dt
-                        != dateutil.parser.isoparse(
-                            getattr(assignment, date_attr)
-                        )
-                    ):
-                        assignment.edit(assignment={date_attr: dt.isoformat()})
-
-            for attr in ["points_possible"]:
-                if (
-                    attr in item
-                    and getattr(assignment, attr, None) != item[attr]
-                ):
-                    assignment.edit(assignment={attr: item[attr]})
         else:
             raise ValueError(f"Can't handle item type {the_type:}")
 
@@ -807,3 +756,47 @@ class CanvasSync:
         course_item.edit(module_item=attrs)
 
         return True
+
+    def sync_assignment_item(self, item: ModuleItemConfig) -> Assignment:
+        assignment = self.get_assignment(item["title"])
+
+        if assignment is None:
+            print(
+                f"[red]Cannot find assignment {item['title']:}[/red]",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        if "description" in item:
+            html = self.render_markdown(
+                Path(item["description"]), template_vars=item.get("vars")
+            )
+        elif "description_contents" in item:
+            html = self.render_markdown(
+                cast(str, item["description_contents"]),
+                template_vars=item.get("vars"),
+            )
+        else:
+            html = None
+
+        if html is not None and (
+            assignment.description is None
+            or not html_equiv(assignment.description, html)
+        ):
+            assignment.edit(assignment={"description": html})
+
+        for date_attr in ["due_at", "lock_at", "unlock_at"]:
+            if date_attr in item:
+                dt = parse_datetime(item[date_attr])
+
+                if not getattr(assignment, date_attr, None) or (
+                    dt
+                    != dateutil.parser.isoparse(getattr(assignment, date_attr))
+                ):
+                    assignment.edit(assignment={date_attr: dt.isoformat()})
+
+        for attr in ["points_possible"]:
+            if attr in item and getattr(assignment, attr, None) != item[attr]:
+                assignment.edit(assignment={attr: item[attr]})
+
+        return assignment
