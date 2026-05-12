@@ -640,7 +640,6 @@ class CanvasSync:
             "type": the_type,
             "position": idx + 1,
             "indent": item["indent"],
-            "published": item.get("published", False),
         }
 
         if the_type == "Page":
@@ -670,12 +669,10 @@ class CanvasSync:
 
         course_item = course_module.create_module_item(module_item=attrs)
 
-        # Creating a SubHeader with published set to True doesn't work, so we
-        # have edit it as a separate step.
-        if the_type == "SubHeader":
-            course_item.edit(
-                module_item={"published": item.get("published", False)}
-            )
+        # We must set the published flag after item creation
+        course_item.edit(
+            module_item={"published": item.get("published", False)}
+        )
 
         return course_item
 
