@@ -22,10 +22,10 @@ cp config.yaml.sample config.yaml
 Edit `config.yaml` and set at least:
 
 - `api_url`
-- `course_sis`
+- `course_sis` (or `course_id`)
 - `modules`
 
-If you do not know the `course_sis` value, see [Finding the course SIS ID](#finding-the-course-sis-id).
+If you do not know the `course_sis` value, see [Finding the course SIS ID](#finding-the-course-sis-id). Alternatively, set `course_id` to the numeric Canvas course ID, or pass `--course-id` on the command line.
 
 Then pass your Canvas API access token on the command line. If you do not have one yet, see [Canvas API access token](#canvas-api-access-token).
 
@@ -53,6 +53,14 @@ Global options must come before the subcommand:
 ```bash
 canvas-sync --config config.yaml --api-key "$CANVAS_API_KEY" sync
 ```
+
+Global options:
+
+- `--config PATH`: course configuration file (required).
+- `--root PATH`: resolve local paths relative to `PATH` instead of the config file directory.
+- `--api-key KEY`: Canvas API token; overrides `api_key` from the config file.
+- `--course-id ID`: numeric Canvas course ID; overrides both `course_id` and `course_sis` from the config file, so one config can target a sandbox course. See [Testing in a sandbox course](#testing-in-a-sandbox-course).
+- `-n`, `--dry-run`: not implemented for `sync`; `sync` prints a warning and still changes Canvas.
 
 Common commands:
 
@@ -144,7 +152,8 @@ Top-level keys:
 
 - `api_url`: Canvas site URL, such as `https://canvas.instructure.com`.
 - `api_key`: Canvas API access token. You can omit this when passing `--api-key` on the command line.
-- `course_sis`: Canvas SIS course ID to synchronize. This value may contain spaces, so quote it in YAML.
+- `course_sis`: Canvas SIS course ID to synchronize. This value may contain spaces, so quote it in YAML. Optional when `course_id` or `--course-id` is given.
+- `course_id`: optional numeric Canvas course ID (the number in the course URL, `https://canvas.example.edu/courses/12345`). When present, it is used instead of `course_sis`. `--course-id` overrides both.
 - `pandoc_metadata`: optional metadata passed to Pandoc when rendering Markdown.
 - `vars`: optional global variables promoted directly into Jinja templates. Use `vars` for short, frequently used values that you want to reference by name, such as `{{ instructor_name }}`.
 - `data`: optional structured data available in Jinja templates as `site`. Use `data` for grouped course or site information, such as `{{ site.course.title }}`, to avoid cluttering the top-level template namespace.
@@ -169,6 +178,17 @@ Each item needs a `title` and one content key. Nested `items` become indented mo
 - No content key: create a Canvas module text header.
 
 Paths are resolved relative to the config file directory unless `--root` is provided.
+
+### Testing in a sandbox course
+
+Use `--course-id` to run an unchanged config against a sandbox or development course. It overrides both `course_id` and `course_sis`:
+
+```bash
+canvas-sync --course-id 12345 --config config.yaml --api-key "$CANVAS_API_KEY" \
+  sync --limit "Week 1"
+```
+
+`--limit "Week 1"` tries a single module first. Assignments referenced with `assignment:` must already exist in the sandbox course.
 
 ### Finding the course SIS ID
 
@@ -298,6 +318,12 @@ The current pre-commit configuration runs:
 - `ruff-check` for linting
 - `docformatter` for docstring formatting checks
 - `mypy` with the configuration in `pyproject.toml`
+
+Run the test suite (the tests mock Canvas and make no network calls):
+
+```bash
+python -m pytest
+```
 
 You can also run an individual hook:
 

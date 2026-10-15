@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 import yaml
+from canvasapi.exceptions import InvalidAccessToken
 from rich import print
 from rich.console import Console
 from rich.markup import escape
@@ -97,6 +98,12 @@ class SyncCommand(Command):
             "--canvas-api-key",
             help="Canvas API key; overrides api_key from the config file",
         )
+        parser.add_argument(
+            "--course-id",
+            type=int,
+            help="Canvas course ID; overrides course_id and course_sis from "
+            "the config file (e.g., to target a sandbox course)",
+        )
 
         #
         # Subparsers for individual commands
@@ -168,6 +175,7 @@ class SyncCommand(Command):
                     args.config,
                     root=args.root,
                     api_key=args.api_key,
+                    course_id=args.course_id,
                 )
             except yaml.YAMLError as exc:
                 print(exc, file=sys.stderr)
@@ -175,6 +183,15 @@ class SyncCommand(Command):
 
             args.func(args)
             return 0
+        except InvalidAccessToken as exc:
+            print(
+                "[red]Canvas rejected the API token: "
+                f"{escape(str(exc))}[/red]\n"
+                "Create a new one in Canvas (Account -> Settings -> New "
+                "Access Token) and pass it with --api-key.",
+                file=sys.stderr,
+            )
+            return 1
         except Exception:
             logging.exception("Error")
             return -1
@@ -188,6 +205,13 @@ class SyncCommand(Command):
                 print(f"{indent:}{item.title:} ({item.type:})")
 
     def sync(self, args: Namespace) -> None:
+        if args.dry_run:
+            print(
+                "[yellow]--dry-run is not implemented for sync; "
+                "changes will be made to Canvas[/yellow]",
+                file=sys.stderr,
+            )
+
         if args.quiet:
             self.sync_obj.sync(limits=args.limit)
             return
@@ -196,9 +220,7 @@ class SyncCommand(Command):
 
         def update_status(module: str, item: str | None) -> None:
             if item is None:
-                status.update(
-                    f"Updating module [bold]{escape(module)}[/bold]"
-                )
+                status.update(f"Updating module [bold]{escape(module)}[/bold]")
             else:
                 status.update(
                     "Updating module "

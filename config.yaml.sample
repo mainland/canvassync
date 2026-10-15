@@ -1,6 +1,9 @@
 api_url: "https://canvas.instructure.com"
 api_key: "replace-with-your-canvas-api-token"
 course_sis: "COURSE SIS ID"
+# Alternatively, the numeric Canvas course ID. Takes precedence over
+# course_sis. The --course-id command line option overrides both.
+# course_id: 12345
 
 # Optional metadata passed to Pandoc when Markdown is rendered.
 pandoc_metadata:

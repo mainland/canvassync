@@ -163,11 +163,13 @@ class CanvasSync:
         config_path: Path,
         root: Path | None = None,
         api_key: str | None = None,
+        course_id: int | None = None,
     ) -> None:
         with config_path.open("r", encoding="utf8") as f:
             self.config = cast(ConfigDict, yaml.safe_load(f))
 
         self._api_key = api_key
+        self._course_id = course_id
 
         if root is None:
             self.root = config_path.parent
@@ -188,8 +190,29 @@ class CanvasSync:
         return cast(str, self.config["api_key"])
 
     @property
+    def course_id(self) -> int | None:
+        """Canvas course ID.
+
+        The ``--course-id`` command line option overrides ``course_id``
+        from the config file.
+        """
+        if self._course_id is not None:
+            return self._course_id
+
+        if self.config.get("course_id") is not None:
+            return int(self.config["course_id"])
+
+        return None
+
+    @property
     def course_sis(self) -> str:
         """Course SIS."""
+        if self.config.get("course_sis") is None:
+            raise ValueError(
+                "No course specified: set course_id or course_sis in the "
+                "config, or pass --course-id"
+            )
+
         return cast(str, self.config["course_sis"])
 
     @cached_property
@@ -202,6 +225,12 @@ class CanvasSync:
         """Canvas course."""
         kwargs = {"include[]": "syllabus_body"}
 
+        course_id = self.course_id
+        if course_id is not None:
+            logging.debug("Getting course by ID %d", course_id)
+            return self.canvas.get_course(course_id, **kwargs)
+
+        logging.debug("Getting course by SIS ID '%s'", self.course_sis)
         return self.canvas.get_course(
             self.course_sis, use_sis_id=True, **kwargs
         )
