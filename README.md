@@ -22,10 +22,10 @@ cp config.yaml.sample config.yaml
 Edit `config.yaml` and set at least:
 
 - `api_url`
-- `course_sis`
+- `course_sis` (or `course_id`)
 - `modules`
 
-If you do not know the `course_sis` value, see [Finding the course SIS ID](#finding-the-course-sis-id).
+If you do not know the `course_sis` value, see [Finding the course SIS ID](#finding-the-course-sis-id). Alternatively, set `course_id` to the numeric Canvas course ID, or pass `--course-id` on the command line.
 
 Then pass your Canvas API access token on the command line. If you do not have one yet, see [Canvas API access token](#canvas-api-access-token).
 
@@ -54,11 +54,21 @@ Global options must come before the subcommand:
 canvas-sync --config config.yaml --api-key "$CANVAS_API_KEY" sync
 ```
 
+Global options:
+
+- `--config PATH`: course configuration file (required).
+- `--root PATH`: resolve local paths relative to `PATH` instead of the config file directory.
+- `--api-key KEY`: Canvas API token; overrides `api_key` from the config file.
+- `--course-id ID`: numeric Canvas course ID; overrides both `course_id` and `course_sis` from the config file, so one config can target a sandbox course. See [Testing in a sandbox course](#testing-in-a-sandbox-course).
+- `-n`, `--dry-run`: not implemented for `sync`; `sync` prints a warning and still changes Canvas.
+
 Common commands:
 
 - `courses`: list courses visible to the Canvas API token.
-- `sync`: synchronize the configured syllabus, modules, pages, files, URLs, and assignment metadata.
+- `sync`: synchronize the configured assignment groups, syllabus, modules, pages, files, URLs, assignments, rubrics, and quizzes.
 - `sync --limit TEXT`: synchronize only modules whose names match `TEXT`. Repeat `--limit` to match more than one module.
+- `sync --create-assignments`: create assignments referenced with `assignment:` that do not exist in Canvas, instead of exiting with an error. Equivalent to `create_assignments: true` in the config.
+- `sync --replace-quizzes`: re-import quizzes whose QTI zip has changed since they were imported. Quizzes with student submissions are never replaced. See [Quizzes](#quizzes).
 - `render PATH`: render one Markdown file to HTML without updating Canvas pages or modules. Local images may still be uploaded during rendering.
 - `render PATH --output rendered.html`: render Markdown to an output file.
 - `roster`: print the course roster as a table.
@@ -74,8 +84,10 @@ Note the following:
 
 - Module and item order in `config.yaml` matter and are reflected in Canvas.
 - Extra Canvas module items after the configured items may be deleted.
-- Assignments referenced with `assignment:` must already exist in Canvas.
-- Local files referenced with `file:`, `page:`, `description:`, or `syllabus:` are resolved relative to the config file directory unless `--root` is provided.
+- Assignments referenced with `assignment:` must already exist in Canvas unless `--create-assignments` (or `create_assignments: true`) is given.
+- `sync --replace-quizzes` deletes and re-imports changed quizzes that have no student submissions.
+- Assignment groups are created and updated, but never deleted.
+- Local files referenced with `file:`, `page:`, `description:`, `rubric:`, `quiz:`, `discussion:`, or `syllabus:` are resolved relative to the config file directory unless `--root` is provided.
 - Run `sync --limit TEXT` first when testing changes to one module.
 
 ### Canvas API access token
@@ -144,7 +156,12 @@ Top-level keys:
 
 - `api_url`: Canvas site URL, such as `https://canvas.instructure.com`.
 - `api_key`: Canvas API access token. You can omit this when passing `--api-key` on the command line.
-- `course_sis`: Canvas SIS course ID to synchronize. This value may contain spaces, so quote it in YAML.
+- `course_sis`: Canvas SIS course ID to synchronize. This value may contain spaces, so quote it in YAML. Optional when `course_id` or `--course-id` is given.
+- `course_id`: optional numeric Canvas course ID (the number in the course URL, `https://canvas.example.edu/courses/12345`). When present, it is used instead of `course_sis`. `--course-id` overrides both.
+- `create_assignments`: optional; when `true`, `sync` creates missing assignments, as with `sync --create-assignments`. Defaults to `false`.
+- `assignment_groups`: optional list of assignment groups to create or update. See [Assignment groups](#assignment-groups).
+- `group_sets`: optional list of group sets (Canvas group categories) for group assignments. See [Group sets](#group-sets).
+- `apply_assignment_group_weights`: optional; sets the course's "weight final grade based on assignment groups" option.
 - `pandoc_metadata`: optional metadata passed to Pandoc when rendering Markdown.
 - `vars`: optional global variables promoted directly into Jinja templates. Use `vars` for short, frequently used values that you want to reference by name, such as `{{ instructor_name }}`.
 - `data`: optional structured data available in Jinja templates as `site`. Use `data` for grouped course or site information, such as `{{ site.course.title }}`, to avoid cluttering the top-level template namespace.
@@ -164,11 +181,173 @@ Each item needs a `title` and one content key. Nested `items` become indented mo
 - `page_contents`: render inline Markdown text and create or update a Canvas page.
 - `file`: upload a local file and add it to the module.
 - `url`: add an external URL. Use `new_tab: true` to open it in a new tab.
-- `assignment`: link an existing Canvas assignment. Optional fields include `description`, `description_contents`, `points_possible`, `unlock_at`, `due_at`, and `lock_at`.
+- `assignment`: link a Canvas assignment by name. Optional fields include `description`, `description_contents`, `unlock_at`, `due_at`, `lock_at`, and the [assignment settings](#assignment-settings) below.
+- `quiz`: import a Canvas Classic Quiz from a QTI `.zip`. See [Quizzes](#quizzes).
 - `vars`: item-specific template variables. These are available when rendering that item's `page`, `page_contents`, assignment `description`, or assignment `description_contents`, and override top-level `vars` with the same name.
 - No content key: create a Canvas module text header.
 
 Paths are resolved relative to the config file directory unless `--root` is provided.
+
+### Assignment settings
+
+Assignment items accept these settings. They are applied when an assignment is created and on every sync, but only when the Canvas value differs:
+
+- `points_possible`: number of points.
+- `submission_types`: list of submission types, such as `[online_upload]`, `[online_text_entry, online_url]`, `[on_paper]`, or `[none]`.
+- `allowed_extensions`: list of file extensions allowed for `online_upload`, such as `[pdf, ipynb]`.
+- `grading_type`: `points`, `percent`, `pass_fail`, `letter_grade`, `gpa_scale`, or `not_graded`.
+- `assignment_group`: name of an assignment group. It must exist in Canvas or be listed under `assignment_groups`.
+- `group_set`: makes it a group assignment for the named group set (one submission per group). It must exist in Canvas or be listed under `group_sets`. Add `grade_group_students_individually: true` to grade group members separately (default `false`: one grade for the group).
+- `peer_reviews`: enables peer reviews when present. A mapping with `anonymous` (default `false`), `automatic` (default `false`), and `count` (number of reviews per student, used when `automatic` is `true`).
+- `rubric`: path to a YAML rubric file. See [Rubrics](#rubrics).
+- `published`: the item's `published` flag also sets the assignment's published state when the assignment is created.
+
+When `--create-assignments` is given and no assignment matches, CanvasSync creates one named by the `assignment` value (or the item `title` if `assignment` is not a string), with the settings above:
+
+```yaml
+- title: "HW1: Cellular Geometry"
+  published: true
+  assignment: "HW1: Cellular Geometry"
+  description: assignments/homework.md
+  points_possible: 20
+  submission_types: [online_upload]
+  allowed_extensions: [ipynb]
+  grading_type: points
+  assignment_group: Homework
+  due_at: "1/10/2027 11:59pm"
+
+- title: "Project Proposal"
+  published: true
+  assignment: "Project Proposal"
+  submission_types: [online_upload]
+  allowed_extensions: [pdf]
+  assignment_group: Project
+  rubric: rubrics/proposal.yaml
+  peer_reviews:
+    anonymous: true
+    automatic: true
+    count: 2
+```
+
+Assignments are looked up by the item `title` first, then by the `assignment` name.
+
+### Assignment groups
+
+The optional top-level `assignment_groups` list is synchronized at the start of every `sync`, before modules. Missing groups are created by name; existing groups are updated when `position`, `group_weight`, `drop_lowest`, or `drop_highest` differ. Groups are never deleted, and groups not listed are left alone.
+
+```yaml
+apply_assignment_group_weights: true
+
+assignment_groups:
+  - name: Homework
+    position: 1
+    group_weight: 40
+    drop_lowest: 1
+  - name: Quizzes
+    position: 2
+    group_weight: 20
+  - name: Project
+    position: 3
+    group_weight: 40
+```
+
+Each group supports `name` (required), `position`, `group_weight` (percent, used when `apply_assignment_group_weights` is `true`), `drop_lowest`, and `drop_highest`.
+
+### Group sets
+
+The optional top-level `group_sets` list is synchronized after the assignment groups, before modules. Missing group sets are created by name; existing ones are updated when `self_signup` or `group_limit` differ. With `groups: N`, empty groups named "<set name> 1", "<set name> 2", … are added until the set has at least N groups, so students can join them. Group sets, groups and memberships are never deleted, and students' memberships are never changed.
+
+```yaml
+group_sets:
+  - name: Project Pairs
+    self_signup: true   # students join a group themselves (People → Groups)
+    group_limit: 2      # at most two students per group
+    groups: 20          # create empty groups up to this many
+```
+
+Point assignments at a set with the item key `group_set`. Canvas refuses to change an assignment's group set once students have submitted, so set it up before the assignment opens.
+
+### Rubrics
+
+An assignment item's `rubric` key names a YAML rubric file:
+
+```yaml
+title: "Project Proposal Rubric"
+free_form_criterion_comments: false   # optional, default false
+use_for_grading: true                 # optional, default false
+criteria:
+  - description: "Problem statement"
+    long_description: "Clear, specific, and motivated"   # optional
+    ratings:
+      - {points: 10, description: "Excellent"}
+      - {points: 5, description: "Adequate", long_description: "Vague in places"}
+      - {points: 0, description: "Missing"}
+  - description: "Writing"
+    ratings:
+      - {points: 5, description: "Clear"}
+      - {points: 0, description: "Unclear"}
+```
+
+Each criterion is worth the maximum points of its ratings.
+
+CanvasSync finds a course rubric with exactly the same `title`:
+
+- If there is none, it creates the rubric and associates it with the assignment for grading.
+- If it exists but is not associated with the assignment, it associates it.
+- If its content differs from the YAML file, CanvasSync prints a warning and does **not** update it, because rubrics that have been used for assessments must not change silently. Edit the rubric in Canvas, or give the YAML rubric a new title to create a new one.
+
+### Quizzes
+
+A `quiz` item imports a Canvas Classic Quiz from a QTI `.zip` (for example, one exported from Canvas or produced by a QTI generator). The quiz title is the item `title`.
+
+```yaml
+- title: "Quiz 1: 5G NR"
+  published: true
+  quiz: quizzes/quiz01.zip
+  time_limit: 30          # minutes
+  allowed_attempts: 1
+  shuffle_answers: true
+  assignment_group: Quizzes
+  unlock_at: "1/4/2027 12:00am"
+  due_at: "1/10/2027 11:59pm"
+  lock_at: "1/11/2027 11:59pm"
+```
+
+Item keys: `quiz` (path to the QTI zip, required), `time_limit`, `allowed_attempts`, `shuffle_answers`, `assignment_group`, `unlock_at`, `due_at`, `lock_at`, and `published`.
+
+On sync, CanvasSync looks for a course quiz with exactly the item's title:
+
+- If there is none, it imports the zip with a Canvas content migration (`qti_converter`), waits for the import to finish, and applies the title and settings to the new quiz. It also stores a sha256 of the zip in a hidden `<p data-canvassync-sha256="...">` element at the end of the quiz description.
+- If the quiz exists, only settings that differ are updated. The quiz questions are not changed.
+- With `sync --replace-quizzes`, a quiz whose stored sha256 differs from the zip (or that has no stored sha256) is deleted and re-imported, and its module item is re-created to point at the new quiz. A quiz with student submissions is never replaced; CanvasSync prints a warning and keeps it.
+
+### Discussions
+
+A module item with `discussion:` (a Markdown file, rendered like a page) is a Canvas discussion topic,
+found by its item title and created if it doesn't exist. Its prompt and settings are updated when they
+differ; students' replies are never touched.
+
+```yaml
+- title: "Find a Project Partner"
+  published: true
+  discussion: discussions/find-a-partner.md
+  discussion_type: threaded   # default; or side_comment
+  unlock_at: "1/4/2027 12:00am"   # posted at (optional)
+  lock_at: "1/17/2027 11:59pm"    # closed for replies (optional)
+  pinned: true                    # optional
+  require_initial_post: false     # optional: students must post before seeing replies
+```
+
+### Testing in a sandbox course
+
+Use `--course-id` to run an unchanged config against a sandbox or development course. It overrides both `course_id` and `course_sis`:
+
+```bash
+canvas-sync --course-id 12345 --config config.yaml --api-key "$CANVAS_API_KEY" \
+  sync --create-assignments
+```
+
+`--create-assignments` creates the assignments that exist in the production course but not in the empty sandbox. Add `--limit "Week 1"` to try a single module first.
 
 ### Finding the course SIS ID
 
@@ -298,6 +477,12 @@ The current pre-commit configuration runs:
 - `ruff-check` for linting
 - `docformatter` for docstring formatting checks
 - `mypy` with the configuration in `pyproject.toml`
+
+Run the test suite (the tests mock Canvas and make no network calls):
+
+```bash
+python -m pytest
+```
 
 You can also run an individual hook:
 

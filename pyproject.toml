@@ -16,6 +16,7 @@ dependencies = [
     "pandas",
     "pypandoc_binary",
     "python-dateutil",
+    "requests",
     "tzlocal",
     "css-inline",
     "rich",
@@ -27,10 +28,15 @@ dev = [
     "mypy",
     "pandas-stubs",
     "pre-commit",
+    "pytest",
     "ruff",
     "types-PyYAML",
     "types-python-dateutil",
+    "types-requests",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
