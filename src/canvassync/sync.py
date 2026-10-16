@@ -1,4 +1,5 @@
 import datetime
+import html
 import importlib.resources
 import logging
 import re
@@ -16,14 +17,17 @@ import tzlocal
 import yaml
 from bs4 import BeautifulSoup
 from canvasapi import Canvas
-from canvasapi.assignment import Assignment
+from canvasapi.assignment import Assignment, AssignmentGroup
 from canvasapi.course import Course
+from canvasapi.exceptions import BadRequest
 from canvasapi.file import File
 from canvasapi.folder import Folder
 from canvasapi.module import Module, ModuleItem
 from canvasapi.page import Page
+from canvasapi.rubric import Rubric
 from jinja2 import Environment, FileSystemLoader
 from rich import print
+from rich.markup import escape
 
 TextSource: TypeAlias = Path | str
 """A text source.
@@ -117,6 +121,27 @@ def flatten_items(
     return result
 
 
+def date_differs(value: str, current: str | None) -> bool:
+    """Determine whether a configured date differs from a Canvas date.
+
+    Args:
+        value (str): Configured date/time string (local time zone).
+        current (Optional[str]): ISO 8601 date/time from Canvas, if any.
+
+    Returns:
+        bool: True if the dates differ or Canvas has no date set.
+    """
+    if not current:
+        return True
+
+    return parse_datetime(value) != dateutil.parser.isoparse(current)
+
+
+def list_differs(value: list[Any], current: list[Any] | None) -> bool:
+    """Determine whether two lists differ, ignoring order."""
+    return sorted(value) != sorted(current or [])
+
+
 ItemType = Literal["Page", "ExternalUrl", "SubHeader", "File", "Assignment"]
 
 
@@ -139,6 +164,177 @@ def item_type(item: ModuleItemConfig) -> ItemType:
     return "SubHeader"
 
 
+def load_rubric(path: Path) -> ConfigDict:
+    """Load and validate a YAML rubric file.
+
+    Args:
+        path (Path): Path to the rubric YAML file.
+
+    Returns:
+        ConfigDict: The rubric configuration.
+    """
+    with path.open("r", encoding="utf8") as f:
+        rubric = cast(ConfigDict, yaml.safe_load(f))
+
+    if not isinstance(rubric, dict) or "title" not in rubric:
+        raise ValueError(f"Rubric '{path:}' must have a title")
+
+    criteria = rubric.get("criteria")
+    if not isinstance(criteria, list) or len(criteria) == 0:
+        raise ValueError(f"Rubric '{path:}' must have at least one criterion")
+
+    for criterion in criteria:
+        if "description" not in criterion:
+            raise ValueError(
+                f"Rubric '{path:}' has a criterion without a description"
+            )
+
+        if not criterion.get("ratings"):
+            raise ValueError(
+                f"Rubric '{path:}' criterion "
+                f"'{criterion['description']:}' has no ratings"
+            )
+
+    return rubric
+
+
+def rubric_criteria(rubric: ConfigDict) -> list[ConfigDict]:
+    """Normalize the criteria of a rubric configuration.
+
+    The points of each criterion are the maximum points of its ratings.
+    """
+    criteria: list[ConfigDict] = []
+
+    for criterion in rubric["criteria"]:
+        ratings = [
+            {
+                "points": rating["points"],
+                "description": rating.get("description", ""),
+                "long_description": rating.get("long_description", ""),
+            }
+            for rating in criterion["ratings"]
+        ]
+
+        criteria.append(
+            {
+                "description": criterion["description"],
+                "long_description": criterion.get("long_description", ""),
+                "points": max(rating["points"] for rating in ratings),
+                "ratings": ratings,
+            }
+        )
+
+    return criteria
+
+
+def rubric_payload(rubric: ConfigDict) -> ConfigDict:
+    """Build the ``rubric`` parameter for Canvas's create rubric API.
+
+    Canvas expects criteria and ratings as hashes indexed by position,
+    e.g., ``rubric[criteria][0][ratings][0][points]``. canvasapi encodes
+    Python lists as ``[]``, so lists are converted to dictionaries with
+    string-integer keys.
+    """
+    criteria: ConfigDict = {}
+
+    for i, criterion in enumerate(rubric_criteria(rubric)):
+        criteria[str(i)] = {
+            "description": criterion["description"],
+            "long_description": criterion["long_description"],
+            "points": criterion["points"],
+            "ratings": {
+                str(j): rating for j, rating in enumerate(criterion["ratings"])
+            },
+        }
+
+    return {
+        "title": rubric["title"],
+        "free_form_criterion_comments": rubric.get(
+            "free_form_criterion_comments", False
+        ),
+        "criteria": criteria,
+    }
+
+
+def _rubric_text(value: Any) -> str:
+    """Normalize rubric text for comparison.
+
+    Canvas stores rubric text as HTML, so quotes and ampersands may come back
+    as entities, and whitespace may change.
+    """
+    return " ".join(html.unescape(str(value or "")).split())
+
+
+def _rubric_signature(
+    free_form: bool, criteria: list[ConfigDict]
+) -> tuple[Any, ...]:
+    """Comparable representation of rubric content."""
+    return (
+        bool(free_form),
+        tuple(
+            (
+                _rubric_text(criterion.get("description")),
+                _rubric_text(criterion.get("long_description")),
+                float(criterion.get("points") or 0),
+                tuple(
+                    (
+                        float(rating.get("points") or 0),
+                        _rubric_text(rating.get("description")),
+                        _rubric_text(rating.get("long_description")),
+                    )
+                    for rating in criterion.get("ratings") or []
+                ),
+            )
+            for criterion in criteria
+        ),
+    )
+
+
+def rubric_differences(rubric: ConfigDict, canvas_rubric: Rubric) -> list[str]:
+    """Describe how a Canvas rubric's content differs from a config.
+
+    Returns:
+        list[str]: Human-readable differences; empty if the content matches.
+    """
+    config_free, config_criteria = _rubric_signature(
+        rubric.get("free_form_criterion_comments", False),
+        rubric_criteria(rubric),
+    )
+    canvas_free, canvas_criteria = _rubric_signature(
+        getattr(canvas_rubric, "free_form_criterion_comments", False),
+        getattr(canvas_rubric, "data", None) or [],
+    )
+
+    differences: list[str] = []
+
+    if config_free != canvas_free:
+        differences.append(
+            f"free-form comments: Canvas {canvas_free}, file {config_free}"
+        )
+
+    if len(config_criteria) != len(canvas_criteria):
+        differences.append(
+            f"{len(canvas_criteria)} criteria in Canvas, "
+            f"{len(config_criteria)} in the file"
+        )
+
+    for i, (ours, theirs) in enumerate(
+        zip(config_criteria, canvas_criteria, strict=False)
+    ):
+        if ours != theirs:
+            differences.append(
+                f"criterion {i + 1} ('{ours[0]}'): Canvas {theirs!r}, "
+                f"file {ours!r}"
+            )
+
+    return differences
+
+
+def rubric_differs(rubric: ConfigDict, canvas_rubric: Rubric) -> bool:
+    """Determine whether a Canvas rubric's content differs from a config."""
+    return bool(rubric_differences(rubric, canvas_rubric))
+
+
 def get_page_source(item: ModuleItemConfig) -> TextSource:
     assert item_type(item) == "Page"
 
@@ -158,21 +354,33 @@ class CanvasSync:
     _folders: list[Folder] | None = None
     """Cached folders"""
 
+    _assignment_groups: dict[str, AssignmentGroup] | None = None
+    """Cached assignment groups, by name."""
+
+    create_assignments: bool = False
+    """Create assignments that do not exist in Canvas."""
+
     def __init__(
         self,
         config_path: Path,
         root: Path | None = None,
         api_key: str | None = None,
+        course_id: int | None = None,
     ) -> None:
         with config_path.open("r", encoding="utf8") as f:
             self.config = cast(ConfigDict, yaml.safe_load(f))
 
         self._api_key = api_key
+        self._course_id = course_id
 
         if root is None:
             self.root = config_path.parent
         else:
             self.root = root
+
+        self.create_assignments = bool(
+            self.config.get("create_assignments", False)
+        )
 
     @property
     def api_url(self) -> str:
@@ -188,8 +396,29 @@ class CanvasSync:
         return cast(str, self.config["api_key"])
 
     @property
+    def course_id(self) -> int | None:
+        """Canvas course ID.
+
+        The ``--course-id`` command line option overrides ``course_id``
+        from the config file.
+        """
+        if self._course_id is not None:
+            return self._course_id
+
+        if self.config.get("course_id") is not None:
+            return int(self.config["course_id"])
+
+        return None
+
+    @property
     def course_sis(self) -> str:
         """Course SIS."""
+        if self.config.get("course_sis") is None:
+            raise ValueError(
+                "No course specified: set course_id or course_sis in the "
+                "config, or pass --course-id"
+            )
+
         return cast(str, self.config["course_sis"])
 
     @cached_property
@@ -202,6 +431,12 @@ class CanvasSync:
         """Canvas course."""
         kwargs = {"include[]": "syllabus_body"}
 
+        course_id = self.course_id
+        if course_id is not None:
+            logging.debug("Getting course by ID %d", course_id)
+            return self.canvas.get_course(course_id, **kwargs)
+
+        logging.debug("Getting course by SIS ID '%s'", self.course_sis)
         return self.canvas.get_course(
             self.course_sis, use_sis_id=True, **kwargs
         )
@@ -214,6 +449,145 @@ class CanvasSync:
                 return assignment
 
         return None
+
+    @property
+    def assignment_groups(self) -> dict[str, AssignmentGroup]:
+        """Course assignment groups, by name (cached)."""
+        if self._assignment_groups is None:
+            self._assignment_groups = {
+                group.name: group
+                for group in self.course.get_assignment_groups()
+            }
+
+        return self._assignment_groups
+
+    def get_assignment_group_id(self, name: str) -> int:
+        """Resolve an assignment group name to its Canvas ID."""
+        group = self.assignment_groups.get(name)
+
+        if group is None:
+            print(
+                f"[red]Cannot find assignment group {name:}[/red]",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        return cast(int, group.id)
+
+    def sync_assignment_groups(self, rules: bool = False) -> None:
+        """Synchronize assignment groups and group weighting.
+
+        Missing groups are created by name and existing groups are
+        updated when their position or weight differ. Groups are never
+        deleted.
+
+        Canvas refuses drop rules larger than the number of assignments in a
+        group, so drop rules are only applied when ``rules`` is true, which
+        :meth:`sync` does after the modules (and so the assignments) have
+        been synchronized. A group that is still too small, for example
+        during a ``--limit`` sync, gets a warning instead.
+
+        Args:
+            rules (bool): Apply drop rules instead of creating groups and
+              updating positions and weights.
+        """
+        if rules:
+            self.sync_assignment_group_rules()
+            return
+
+        if "apply_assignment_group_weights" in self.config:
+            apply = bool(self.config["apply_assignment_group_weights"])
+
+            if (
+                getattr(self.course, "apply_assignment_group_weights", None)
+                != apply
+            ):
+                logging.debug("Setting apply_assignment_group_weights")
+                self.course.update(
+                    course={"apply_assignment_group_weights": apply}
+                )
+
+        groups = cast(
+            list[ConfigDict], self.config.get("assignment_groups", [])
+        )
+
+        for group_config in groups:
+            name = group_config["name"]
+            group = self.assignment_groups.get(name)
+
+            attrs: ConfigDict = {}
+
+            for attr in ["position", "group_weight"]:
+                if attr in group_config and (
+                    group is None
+                    or getattr(group, attr, None) != group_config[attr]
+                ):
+                    attrs[attr] = group_config[attr]
+
+            if group is None:
+                logging.debug("Creating assignment group '%s'", name)
+                group = self.course.create_assignment_group(name=name, **attrs)
+                self.assignment_groups[name] = group
+            elif attrs:
+                logging.debug("Updating assignment group '%s'", name)
+                group.edit(**attrs)
+
+    def sync_assignment_group_rules(self) -> None:
+        """Apply the configured drop rules to existing assignment groups."""
+        groups = cast(
+            list[ConfigDict], self.config.get("assignment_groups", [])
+        )
+
+        for group_config in groups:
+            name = group_config["name"]
+            group = self.assignment_groups.get(name)
+
+            if group is None:
+                continue
+
+            rules: ConfigDict = {}
+
+            current_rules = (
+                cast(ConfigDict, getattr(group, "rules", None) or {})
+                if group is not None
+                else {}
+            )
+
+            for rule in ["drop_lowest", "drop_highest"]:
+                if (
+                    rule in group_config
+                    and current_rules.get(rule, 0) != group_config[rule]
+                ):
+                    rules[rule] = group_config[rule]
+
+            if not rules:
+                continue
+
+            # Rules not given are reset by Canvas, so send all of them.
+            all_rules = {
+                **{
+                    k: v
+                    for k, v in current_rules.items()
+                    if k in ("drop_lowest", "drop_highest")
+                },
+                **{
+                    rule: group_config[rule]
+                    for rule in ["drop_lowest", "drop_highest"]
+                    if rule in group_config
+                },
+            }
+
+            logging.debug("Setting drop rules on assignment group '%s'", name)
+            try:
+                group.edit(rules=all_rules)
+            except BadRequest as exc:
+                if "Drop rules cannot be higher" not in str(exc):
+                    raise
+                print(
+                    f"[yellow]Not setting drop rules on assignment group "
+                    f"'{name:}' yet: it has too few assignments. They are "
+                    "set by a later sync.[/yellow]"
+                )
 
     def get_folder(self, folderpath: str) -> Folder | None:
         if self._folders is None:
@@ -462,8 +836,23 @@ class CanvasSync:
         self,
         limits: list[str] | None = None,
         status_callback: Callable[[str, str | None], None] | None = None,
+        create_assignments: bool | None = None,
     ) -> None:
-        """Synchronize course."""
+        """Synchronize course.
+
+        Args:
+            limits (Optional[List[str]]): Only synchronize modules matching
+              these keywords.
+            status_callback (Optional[Callable]): Progress callback taking a
+              module name and an optional item description.
+            create_assignments (Optional[bool]): Create missing assignments.
+              Defaults to the config's ``create_assignments``.
+        """
+        if create_assignments:
+            self.create_assignments = True
+
+        self.sync_assignment_groups()
+
         self.sync_syllabus(self.course)
 
         course_modules = self.course.get_modules()
@@ -484,6 +873,8 @@ class CanvasSync:
                 pred=make_filter(limits),
                 status_callback=status_callback,
             )
+
+        self.sync_assignment_groups(rules=True)
 
     def sync_syllabus(self, course: Course) -> None:
         """Synchronize course syllabus."""
@@ -754,15 +1145,104 @@ class CanvasSync:
 
         return True
 
+    def assignment_settings(
+        self, item: ModuleItemConfig, assignment: Assignment | None = None
+    ) -> ConfigDict:
+        """Compute assignment settings from an item that differ from Canvas.
+
+        Args:
+            item (ModuleItemConfig): Assignment item.
+            assignment (Optional[Assignment]): Existing assignment, or None
+              to compute settings for a new assignment.
+
+        Returns:
+            ConfigDict: Settings to send to Canvas.
+        """
+
+        def differs(attr: str, value: Any) -> bool:
+            return (
+                assignment is None or getattr(assignment, attr, None) != value
+            )
+
+        attrs: ConfigDict = {}
+
+        for attr in ["points_possible", "grading_type"]:
+            if attr in item and differs(attr, item[attr]):
+                attrs[attr] = item[attr]
+
+        for attr in ["submission_types", "allowed_extensions"]:
+            if attr in item:
+                value = list(item[attr])
+                current = (
+                    getattr(assignment, attr, None)
+                    if assignment is not None
+                    else None
+                )
+
+                if assignment is None or list_differs(value, current):
+                    attrs[attr] = value
+
+        if "assignment_group" in item:
+            group_id = self.get_assignment_group_id(item["assignment_group"])
+
+            if differs("assignment_group_id", group_id):
+                attrs["assignment_group_id"] = group_id
+
+        if "peer_reviews" in item:
+            peer_reviews = cast(ConfigDict, item["peer_reviews"] or {})
+            automatic = bool(peer_reviews.get("automatic", False))
+
+            wanted: ConfigDict = {
+                "peer_reviews": True,
+                "anonymous_peer_reviews": bool(
+                    peer_reviews.get("anonymous", False)
+                ),
+                "automatic_peer_reviews": automatic,
+            }
+
+            if automatic and "count" in peer_reviews:
+                wanted["peer_review_count"] = int(peer_reviews["count"])
+
+            for attr, value in wanted.items():
+                if differs(attr, value):
+                    attrs[attr] = value
+
+        return attrs
+
     def sync_assignment_item(self, item: ModuleItemConfig) -> Assignment:
         assignment = self.get_assignment(item["title"])
 
+        name = item["assignment"]
+        if not isinstance(name, str) or not name:
+            name = item["title"]
+
+        if assignment is None and name != item["title"]:
+            assignment = self.get_assignment(name)
+
         if assignment is None:
-            print(
-                f"[red]Cannot find assignment {item['title']:}[/red]",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+            if not self.create_assignments:
+                print(
+                    f"[red]Cannot find assignment {item['title']:}[/red]",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+            attrs = self.assignment_settings(item)
+            attrs["name"] = name
+            attrs["published"] = item.get("published", False)
+
+            logging.debug("Creating assignment '%s'", name)
+            assignment = self.course.create_assignment(assignment=attrs)
+        else:
+            attrs = self.assignment_settings(item, assignment)
+
+            if attrs:
+                logging.debug(
+                    "Updating assignment '%s' settings: %s",
+                    name,
+                    ", ".join(sorted(attrs)),
+                )
+                assignment.edit(assignment=attrs)
 
         if "description" in item:
             html = self.render_markdown(
@@ -777,23 +1257,88 @@ class CanvasSync:
             html = None
 
         if html is not None and (
-            assignment.description is None
+            getattr(assignment, "description", None) is None
             or not html_equiv(assignment.description, html)
         ):
             assignment.edit(assignment={"description": html})
 
         for date_attr in ["due_at", "lock_at", "unlock_at"]:
-            if date_attr in item:
+            if date_attr in item and date_differs(
+                item[date_attr], getattr(assignment, date_attr, None)
+            ):
                 dt = parse_datetime(item[date_attr])
+                assignment.edit(assignment={date_attr: dt.isoformat()})
 
-                if not getattr(assignment, date_attr, None) or (
-                    dt
-                    != dateutil.parser.isoparse(getattr(assignment, date_attr))
-                ):
-                    assignment.edit(assignment={date_attr: dt.isoformat()})
-
-        for attr in ["points_possible"]:
-            if attr in item and getattr(assignment, attr, None) != item[attr]:
-                assignment.edit(assignment={attr: item[attr]})
+        if "rubric" in item:
+            self.sync_rubric(Path(item["rubric"]), assignment)
 
         return assignment
+
+    def get_rubric_by_title(self, title: str) -> Rubric | None:
+        """Find a course rubric with exactly this title."""
+        for rubric in self.course.get_rubrics():
+            if rubric.title == title:
+                return rubric
+
+        return None
+
+    def sync_rubric(self, path: Path, assignment: Assignment) -> None:
+        """Synchronize a YAML rubric and associate it with an assignment.
+
+        A missing rubric is created and associated with the assignment for
+        grading. An existing rubric is associated with the assignment if it
+        isn't already. Rubric content is never updated because rubrics may
+        have assessments; a warning is printed if it differs.
+
+        Args:
+            path (Path): Rubric YAML file, relative to the root.
+            assignment (Assignment): Assignment to associate the rubric with.
+        """
+        rubric_config = load_rubric(self.root / path)
+        title = rubric_config["title"]
+        use_for_grading = bool(rubric_config.get("use_for_grading", False))
+
+        association: ConfigDict = {
+            "association_type": "Assignment",
+            "association_id": assignment.id,
+            "purpose": "grading",
+            "use_for_grading": use_for_grading,
+            "hide_score_total": False,
+        }
+
+        rubric = self.get_rubric_by_title(title)
+
+        if rubric is None:
+            logging.debug("Creating rubric '%s'", title)
+            self.course.create_rubric(
+                rubric=rubric_payload(rubric_config),
+                rubric_association=association,
+            )
+            return
+
+        # The rubric list may omit criteria; fetch the full rubric to compare.
+        if getattr(rubric, "data", None) is None:
+            rubric = self.course.get_rubric(rubric.id)
+
+        differences = rubric_differences(rubric_config, rubric)
+        if differences:
+            details = "\n  ".join(escape(d) for d in differences[:3])
+            print(
+                f"[yellow]Rubric '{title:}' in Canvas differs from "
+                f"'{path:}'; not updating it. Edit it in Canvas or give the "
+                f"rubric a new title.\n  {details}[/yellow]"
+            )
+
+        rubric_settings = cast(
+            ConfigDict, getattr(assignment, "rubric_settings", None) or {}
+        )
+
+        if rubric_settings.get("id") != rubric.id:
+            logging.debug(
+                "Associating rubric '%s' with assignment '%s'",
+                title,
+                assignment.name,
+            )
+            self.course.create_rubric_association(
+                rubric_association={"rubric_id": rubric.id, **association}
+            )
